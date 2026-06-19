@@ -1,0 +1,87 @@
+# ParkFlow-AI pipeline configuration.
+# All paths are relative to the project root unless absolute.
+
+paths:
+  raw_data: "dataset/jan to may police violation_anonymized791b166.csv"   # real BTP export
+  artifacts_dir: artifacts
+
+spatial:
+  # Junction is the primary zone; coordinate grid is the fallback for "No Junction" rows.
+  grid_decimals: 2          # ~1.1 km cells. 2 dp keeps fallback-zone count sane (~550);
+                            # 3 dp explodes to ~5700 tiny, noisy cells on this dataset.
+  missing_junction_label: "No Junction"
+  missing_station_label: "Unknown Station"
+
+temporal:
+  timezone: "Asia/Kolkata"  # raw timestamps are UTC; convert so hour-of-day = local time
+  bin_hours: 3              # aggregation window. 1=hourly, 3/4=coarser, 24=daily (see PRD 7.4)
+  # Lag/rolling windows are expressed in DAYS and converted to bins internally.
+  lag_days: [1, 7]          # previous-day and previous-week same-bin lags
+  rolling_days: [7, 30]     # rolling mean windows
+
+model:
+  test_fraction: 0.2        # last 20% of the time range is the held-out future test set
+  objective: "count:poisson"
+  n_estimators: 400
+  max_depth: 6
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_weight: 5
+  random_state: 42
+
+# Predicted-count -> operational risk band (PRD 8.1).
+risk_bands:
+  - { name: "Low",      max: 5 }
+  - { name: "Medium",   max: 15 }
+  - { name: "High",     max: 25 }
+  - { name: "Critical", max: .inf }
+
+# Enforcement priority weights (PRD 8.4).
+priority:
+  w_predicted: 0.6
+  w_historical: 0.3
+  w_junction: 0.1
+
+# Disruption proxy (PRD 8.2) -- HEURISTIC, not measured congestion.
+# Relative "road-blocking" weight per vehicle category.
+disruption:
+  vehicle_weights:
+    "BUS (BMTC/KSRTC)": 5.0
+    "PRIVATE BUS": 5.0
+    BUS: 5.0
+    LGV: 3.0
+    TEMPO: 3.0
+    "GOODS AUTO": 2.5
+    VAN: 2.5
+    "MAXI-CAB": 2.0
+    CAR: 2.0
+    "PASSENGER AUTO": 1.5
+    "MOTOR CYCLE": 1.0
+    SCOOTER: 1.0
+    MOPED: 1.0
+  default_vehicle_weight: 1.5
+  junction_road_weight: 1.5   # multiplier when the zone is a real junction (vs side street)
+  side_street_weight: 1.0
+
+patrol:
+  num_teams: 3
+  spatial_suppress_km: 1.0   # don't assign two teams within this radius
+
+# Violation types kept as genuine parking violations (PRD 4.3).
+# violation_type in the raw data is a JSON array per record; a record is kept if
+# ANY of its tags is in this set. Expanded to cover all parking subtypes present.
+valid_violation_types:
+  - "NO PARKING"
+  - "WRONG PARKING"
+  - "PARKING IN A MAIN ROAD"
+  - "PARKING NEAR ROAD CROSSING"
+  - "PARKING ON FOOTPATH"
+  - "PARKING NEAR BUSTOP/SCHOOL/HOSPITAL ETC"
+  - "DOUBLE PARKING"
+  - "PARKING NEAR TRAFFIC LIGHT OR ZEBRA CROSS"
+  - "PARKING OPPOSITE TO ANOTHER PARKED VEHICLE"
+  - "PARKING OTHER THAN BUS STOP"
+
+logging:
+  level: INFO
