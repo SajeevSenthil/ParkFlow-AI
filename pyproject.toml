@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "parkflow"
+version = "0.1.0"
+description = "ParkFlow-AI: spatial-temporal forecasting of parking violations and enforcement intelligence"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "scikit-learn>=1.4",
+    "xgboost>=2.0",
+    "pyyaml>=6.0",
+    "joblib>=1.3",
+]
+
+[project.optional-dependencies]
+dashboard = ["streamlit>=1.33", "plotly>=5.20", "pydeck>=0.9"]
+dev = ["pytest>=8.0", "ruff>=0.4"]
+
+[project.scripts]
+parkflow = "parkflow.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
