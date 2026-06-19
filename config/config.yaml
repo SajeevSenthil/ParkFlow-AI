@@ -5,6 +5,13 @@ paths:
   raw_data: "dataset/jan to may police violation_anonymized791b166.csv"   # real BTP export
   artifacts_dir: artifacts
 
+preprocessing:
+  # When true, only records with validation_status == "approved" are kept for
+  # model training and hotspot computation. Set false to include all records.
+  approved_only: false
+  # Statuses considered valid when approved_only is false (rejected/duplicate removed).
+  exclude_statuses: ["rejected", "duplicate"]
+
 spatial:
   # Junction is the primary zone; coordinate grid is the fallback for "No Junction" rows.
   grid_decimals: 2          # ~1.1 km cells. 2 dp keeps fallback-zone count sane (~550);
@@ -43,9 +50,10 @@ priority:
   w_historical: 0.3
   w_junction: 0.1
 
-# Disruption proxy (PRD 8.2) -- HEURISTIC, not measured congestion.
-# Relative "road-blocking" weight per vehicle category.
+# Congestion Impact Score (CIS) -- data-driven proxy, NOT measured congestion.
+# Replaces the old single-formula disruption_proxy.
 disruption:
+  # Relative "road-blocking" weight per vehicle category.
   vehicle_weights:
     "BUS (BMTC/KSRTC)": 5.0
     "PRIVATE BUS": 5.0
@@ -61,8 +69,31 @@ disruption:
     SCOOTER: 1.0
     MOPED: 1.0
   default_vehicle_weight: 1.5
-  junction_road_weight: 1.5   # multiplier when the zone is a real junction (vs side street)
+  junction_road_weight: 1.5   # multiplier when zone is a named junction (vs grid cell)
   side_street_weight: 1.0
+
+  # Carriageway-blocking severity per violation type (higher = more congestion impact).
+  # DOUBLE PARKING blocks a moving lane directly; MAIN ROAD narrows carriageway.
+  violation_severity_weights:
+    "DOUBLE PARKING": 3.0
+    "PARKING IN A MAIN ROAD": 2.5
+    "PARKING NEAR TRAFFIC LIGHT OR ZEBRA CROSS": 2.0
+    "PARKING NEAR ROAD CROSSING": 2.0
+    "PARKING OPPOSITE TO ANOTHER PARKED VEHICLE": 1.8
+    "PARKING NEAR BUSTOP/SCHOOL/HOSPITAL ETC": 1.5
+    "NO PARKING": 1.2
+    "WRONG PARKING": 1.0
+    "PARKING ON FOOTPATH": 1.0
+    "PARKING OTHER THAN BUS STOP": 1.0
+  default_violation_severity: 1.0
+
+  # IST hour ranges considered peak congestion windows (multiplier applied to CIS).
+  peak_hours_morning: [7, 8, 9, 10]    # 07:00–11:00
+  peak_hours_evening: [17, 18, 19]     # 17:00–20:00
+  peak_hour_multiplier: 1.5
+
+  # Repeat-offender threshold: vehicles seen >N times at a zone contribute to CIS.
+  repeat_offender_threshold: 2
 
 patrol:
   num_teams: 3
