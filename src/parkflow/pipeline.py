@@ -82,6 +82,11 @@ def run(cfg: Config) -> PipelineResult:
             "test_fraction": cfg.model.test_fraction,
             "objective": cfg.model.objective,
         },
+        "pipeline_run_at": pd.Timestamp.now().isoformat(),
+        "data_date_range": {
+            "from": str(events[S.CREATED_DATETIME].min()),
+            "to": str(events[S.CREATED_DATETIME].max()),
+        },
     }
     metrics["model_beats_baseline"] = (
         metrics["model"]["mae"] < metrics["baseline"]["mae"]
@@ -125,9 +130,42 @@ def run(cfg: Config) -> PipelineResult:
     model.save(art / "model.joblib")
     write_json(metrics, art / "metrics.json")
 
+    # Test-set predictions for model diagnostic chart in the dashboard.
+    test_preds = test_df[[S.ZONE, S.BIN_START, target]].copy()
+    test_preds["predicted"] = model_test_pred
+    test_preds["error"] = test_preds["predicted"] - test_preds[target]
+    write_table(test_preds, art / "test_predictions.csv")
+
     # Supporting analytics (PRD deliverables 5 & 6).
     write_table(A.analytics_events(events), art / "events_analytics.parquet")
     write_table(A.junction_risk_table(events, ranked, cfg), art / "junction_risk.csv")
+
+    # Repeat-offender analytics: vehicles with more violations than the threshold.
+    if S.VEHICLE_NUMBER in events.columns:
+        rep_threshold = cfg.disruption.repeat_offender_threshold
+        top_zone = events.groupby(S.VEHICLE_NUMBER)[S.ZONE].agg(
+            lambda s: s.value_counts().idxmax()
+        )
+        repeat_offenders = (
+            events.groupby(S.VEHICLE_NUMBER)
+            .agg(
+                violation_count=(S.ZONE, "count"),
+                unique_zones=(S.ZONE, "nunique"),
+                vehicle_type=(S.VEHICLE_TYPE, "first"),
+                last_seen=(S.CREATED_DATETIME, "max"),
+            )
+            .query(f"violation_count > {rep_threshold}")
+            .join(top_zone.rename("top_zone"))
+            .sort_values("violation_count", ascending=False)
+            .reset_index()
+        )
+        write_table(repeat_offenders, art / "repeat_offenders.csv")
+        log.info(
+            "Repeat offenders: %d vehicles with > %d violations",
+            len(repeat_offenders),
+            rep_threshold,
+        )
+
     log.info("Artifacts written to %s", art)
 
     return PipelineResult(metrics=metrics, artifacts_dir=art)

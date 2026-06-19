@@ -118,12 +118,21 @@ def add_lag_features(dense: pd.DataFrame, cfg: Config) -> tuple[pd.DataFrame, li
     return dense, cols
 
 
+_CARRIAGEWAY_BLOCKING = {
+    "DOUBLE PARKING",
+    "PARKING IN A MAIN ROAD",
+    "PARKING NEAR TRAFFIC LIGHT OR ZEBRA CROSS",
+    "PARKING NEAR ROAD CROSSING",
+    "PARKING OPPOSITE TO ANOTHER PARKED VEHICLE",
+}
+
+
 def add_zone_statics(
     dense: pd.DataFrame, train_mask: pd.Series, events: pd.DataFrame, cfg: Config
 ) -> tuple[pd.DataFrame, list[str]]:
     """Static per-zone features derived **from the training period only** to avoid
-    leakage: historical frequency, frequency encoding, dominant police station,
-    vehicle mix, and a junction flag.
+    leakage: historical frequency, frequency encoding, vehicle mix, junction flag,
+    carriageway-blocking share, repeat-offender density, and violation growth rate.
     """
     dense = dense.copy()
     train_zone_bins = dense.loc[train_mask, [S.ZONE, S.BIN_START]]
@@ -137,26 +146,26 @@ def add_zone_statics(
         .rename("zone_hist_mean")
     )
     # Frequency encoding: share of all training violations at this zone.
-    freq = (
-        dense.loc[train_mask]
-        .groupby(S.ZONE)[S.TARGET]
-        .sum()
-    )
+    freq = dense.loc[train_mask].groupby(S.ZONE)[S.TARGET].sum()
     freq_enc = (freq / max(freq.sum(), 1)).rename("zone_freq_enc")
 
     statics = pd.concat([hist, freq_enc], axis=1).reset_index()
 
-    # Junction flag + vehicle mix from the underlying events (train window only).
+    # Events restricted to the training window.
     ev = events[
         (events[S.CREATED_DATETIME] >= train_window[0])
         & (events[S.CREATED_DATETIME] <= train_window[1] + pd.Timedelta(hours=cfg.temporal.bin_hours))
     ]
+
+    # Junction flag.
     is_junction = (
         ev.assign(j=(ev[S.ZONE_KIND] == "junction").astype(int))
         .groupby(S.ZONE)["j"]
         .max()
         .rename("is_junction")
     )
+
+    # Heavy vehicle share.
     heavy = {
         "BUS", "BUS (BMTC/KSRTC)", "PRIVATE BUS", "LGV", "GOODS AUTO",
         "MAXI-CAB", "TEMPO", "VAN",
@@ -167,15 +176,78 @@ def add_zone_statics(
         .mean()
         .rename("zone_heavy_veh_share")
     )
+
+    # --- New feature 1: carriageway-blocking violation share ---
+    # Fraction of violations at the zone that directly block moving lanes.
+    # Higher share = zone is more likely to cause measurable congestion.
+    if S.VIOLATION_TYPE in ev.columns:
+        block_share = (
+            ev.assign(
+                blocking=ev[S.VIOLATION_TYPE].astype(str).str.upper()
+                .isin(_CARRIAGEWAY_BLOCKING)
+                .astype(int)
+            )
+            .groupby(S.ZONE)["blocking"]
+            .mean()
+            .rename("carriageway_block_share")
+        )
+    else:
+        block_share = pd.Series(dtype=float, name="carriageway_block_share")
+
+    # --- New feature 2: repeat-offender density per zone ---
+    # Count of vehicles seen more than `repeat_offender_threshold` times at this zone.
+    # Zones with chronic repeat blockers need sustained enforcement, not just spot checks.
+    if S.VEHICLE_NUMBER in ev.columns:
+        threshold = cfg.disruption.repeat_offender_threshold
+        per_zone_veh = ev.groupby([S.ZONE, S.VEHICLE_NUMBER]).size()
+        rep_density = (
+            (per_zone_veh > threshold)
+            .groupby(level=0)
+            .sum()
+            .rename("repeat_offender_density")
+            .pipe(np.log1p)   # log-scale to avoid dominating other features
+        )
+    else:
+        rep_density = pd.Series(dtype=float, name="repeat_offender_density")
+
+    # --- New feature 3: violation growth rate ---
+    # Ratio of recent 7-day rolling mean to 30-day rolling mean on the training
+    # time series. Values > 1 mean the zone is getting worse; < 1 means improving.
+    bpd = cfg.temporal.bins_per_day
+    train_dense = dense.loc[train_mask].sort_values([S.ZONE, S.BIN_START])
+    grp_target = train_dense.groupby(S.ZONE)[S.TARGET]
+    roll7 = (
+        grp_target.apply(lambda s: s.rolling(7 * bpd, min_periods=1).mean().iloc[-1])
+        .rename("_roll7")
+    )
+    roll30 = (
+        grp_target.apply(lambda s: s.rolling(30 * bpd, min_periods=1).mean().iloc[-1])
+        .rename("_roll30")
+    )
+    growth_rate = (roll7 / roll30.replace(0, np.nan)).fillna(1.0).clip(0, 5).rename("violation_growth_rate")
+
     statics = (
-        statics.merge(is_junction.reset_index(), on=S.ZONE, how="left")
+        statics
+        .merge(is_junction.reset_index(), on=S.ZONE, how="left")
         .merge(veh_share.reset_index(), on=S.ZONE, how="left")
+        .merge(block_share.reset_index(), on=S.ZONE, how="left")
+        .merge(rep_density.reset_index(), on=S.ZONE, how="left")
+        .merge(growth_rate.reset_index(), on=S.ZONE, how="left")
     )
 
     dense = dense.merge(statics, on=S.ZONE, how="left")
-    static_cols = ["zone_hist_mean", "zone_freq_enc", "is_junction", "zone_heavy_veh_share"]
+    static_cols = [
+        "zone_hist_mean",
+        "zone_freq_enc",
+        "is_junction",
+        "zone_heavy_veh_share",
+        "carriageway_block_share",
+        "repeat_offender_density",
+        "violation_growth_rate",
+    ]
     for c in static_cols:
         dense[c] = dense[c].fillna(0.0)
+    log.info("Zone statics built: %d features for %d zones", len(static_cols), dense[S.ZONE].nunique())
     return dense, static_cols
 
 

@@ -7,7 +7,7 @@ every tunable. ``Config.load()`` is the only entry point the rest of the code us
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field  # noqa: F401 (field used in PreprocessingCfg)
 from pathlib import Path
 from typing import Any
 
@@ -95,12 +95,24 @@ class DisruptionCfg:
     default_vehicle_weight: float
     junction_road_weight: float
     side_street_weight: float
+    violation_severity_weights: dict[str, float]
+    default_violation_severity: float
+    peak_hours_morning: list[int]
+    peak_hours_evening: list[int]
+    peak_hour_multiplier: float
+    repeat_offender_threshold: int
 
 
 @dataclass(frozen=True)
 class PatrolCfg:
     num_teams: int
     spatial_suppress_km: float
+
+
+@dataclass(frozen=True)
+class PreprocessingCfg:
+    approved_only: bool = False
+    exclude_statuses: list[str] = field(default_factory=lambda: ["rejected", "duplicate"])
 
 
 @dataclass(frozen=True)
@@ -113,6 +125,7 @@ class Config:
     priority: PriorityCfg
     disruption: DisruptionCfg
     patrol: PatrolCfg
+    preprocessing: PreprocessingCfg
     valid_violation_types: list[str]
     log_level: str
 
@@ -135,6 +148,11 @@ class Config:
             RiskBand(name=b["name"], max=float(b["max"]) if b["max"] != ".inf" else math.inf)
             for b in raw["risk_bands"]
         ]
+        pre_raw = raw.get("preprocessing", {})
+        preprocessing = PreprocessingCfg(
+            approved_only=bool(pre_raw.get("approved_only", False)),
+            exclude_statuses=list(pre_raw.get("exclude_statuses", ["rejected", "duplicate"])),
+        )
         return Config(
             paths=paths,
             spatial=SpatialCfg(**raw["spatial"]),
@@ -144,6 +162,7 @@ class Config:
             priority=PriorityCfg(**raw["priority"]),
             disruption=DisruptionCfg(**raw["disruption"]),
             patrol=PatrolCfg(**raw["patrol"]),
+            preprocessing=preprocessing,
             valid_violation_types=list(raw["valid_violation_types"]),
             log_level=raw.get("logging", {}).get("level", "INFO"),
         )
