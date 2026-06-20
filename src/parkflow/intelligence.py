@@ -27,7 +27,10 @@ def risk_band(values: pd.Series, cfg: Config) -> pd.Series:
     return pd.cut(values, bins=edges, labels=names, right=True).astype(str)
 
 
-# --- 8.2 Parking Congestion Impact Index (PCU + Indo-HCM principles) --------
+# --- 8.2 Parking Congestion Impact Index ------------------------------------
+# Headline = estimated % road capacity lost, grounded in PCU (Indo-HCM/IRC) + the
+# HCM saturation-flow principle, and MODULATED by data-observed signals (violation
+# severity, peak-hour). Uses only provided data + standard constants (no external data).
 def zone_mean_pcu(events: pd.DataFrame, cfg: Config) -> pd.Series:
     """Mean Passenger-Car-Unit (PCU) value of vehicles seen at each zone."""
     pcu = events[S.VEHICLE_TYPE].astype(str).str.upper().map(cfg.congestion.pcu_weights)
@@ -35,35 +38,67 @@ def zone_mean_pcu(events: pd.DataFrame, cfg: Config) -> pd.Series:
     return pcu.groupby(events[S.ZONE]).mean().rename("mean_pcu")
 
 
+def zone_violation_severity(events: pd.DataFrame, cfg: Config) -> pd.Series:
+    """Mean carriageway-blocking severity of violation types seen at each zone."""
+    sev = (
+        events[S.VIOLATION_TYPE]
+        .astype(str)
+        .str.upper()
+        .map(cfg.congestion.violation_severity_weights)
+        .fillna(cfg.congestion.default_violation_severity)
+    )
+    return sev.groupby(events[S.ZONE]).mean().rename("viol_severity")
+
+
 def congestion_index(
     zone_frame: pd.DataFrame, events: pd.DataFrame, cfg: Config
 ) -> pd.DataFrame:
-    """Parking Congestion Impact Index, grounded in PCU + the HCM principle that
-    parked vehicles cut a road's saturation flow.
+    """Parking Congestion Impact Index — estimated % of road capacity lost.
 
-        pcu_load   = predicted_violations * mean_PCU * road_factor
-        est_cap_red% = max_cap * (1 - exp(-pcu_load / saturation_pcu))   [Indo-HCM-style]
-        congestion_index (0-100) = est_cap_red% / max_cap * 100
+        effective_load = predicted_violations × mean_PCU × road_factor
+                         × violation_severity × peak_hour_multiplier
+        est_cap_red%   = max_cap × (1 − exp(−effective_load / saturation_pcu))   [Indo-HCM-style]
+        congestion_index (0–100) = est_cap_red% / max_cap × 100
 
-    Uses only provided data + standard traffic-engineering constants (no external data).
+    PCU values and the HCM saturation-flow principle are standard traffic-engineering
+    constants; severity and peak-hour are observed from the provided data. No external data.
     """
     c = cfg.congestion
     out = zone_frame.copy()
+
+    # Vehicle PCU + violation severity per zone.
     pcu = zone_mean_pcu(events, cfg)
     out = out.merge(pcu.reset_index(), on=S.ZONE, how="left")
     out["mean_pcu"] = out["mean_pcu"].fillna(c.default_pcu)
+    sev = zone_violation_severity(events, cfg)
+    out = out.merge(sev.reset_index(), on=S.ZONE, how="left")
+    out["viol_severity"] = out["viol_severity"].fillna(c.default_violation_severity)
 
+    # Road class + peak-hour modulation.
     road_factor = np.where(
         out.get(S.ZONE_KIND, "junction") == "junction",
         c.junction_road_factor,
         c.side_street_factor,
     )
-    pcu_load = out[PRED_COL] * out["mean_pcu"] * road_factor
-    est_cap_red = c.max_capacity_reduction_pct * (1.0 - np.exp(-pcu_load / c.saturation_pcu))
+    peak_hours = set(c.peak_hours_morning) | set(c.peak_hours_evening)
+    if S.BIN_START in out.columns:
+        hour = pd.to_datetime(out[S.BIN_START]).dt.hour
+    else:
+        hour = pd.Series(0, index=out.index)
+    peak_mult = np.where(hour.isin(peak_hours), c.peak_hour_multiplier, 1.0)
 
-    out["pcu_load"] = pcu_load.round(2)
+    effective_load = (
+        out[PRED_COL] * out["mean_pcu"] * road_factor * out["viol_severity"] * peak_mult
+    )
+    est_cap_red = c.max_capacity_reduction_pct * (1.0 - np.exp(-effective_load / c.saturation_pcu))
+
+    out["pcu_load"] = effective_load.round(2)
     out["est_capacity_reduction_pct"] = est_cap_red.round(1)
     out["congestion_index"] = (100.0 * est_cap_red / c.max_capacity_reduction_pct).round(1)
+    # Backward-compat alias so older dashboard column lists still resolve.
+    out["disruption_proxy"] = out["congestion_index"]
+    out = out.drop(columns=["mean_pcu", "viol_severity"], errors="ignore")
+    log.info("Computed congestion impact index for %d zones", len(out))
     return out
 
 

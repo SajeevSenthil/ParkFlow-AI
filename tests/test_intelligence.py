@@ -16,6 +16,7 @@ def _events():
             S.ZONE: ["A", "A", "B", "B"],
             S.ZONE_KIND: ["junction", "junction", "junction", "junction"],
             S.VEHICLE_TYPE: ["BUS", "BUS", "SCOOTER", "SCOOTER"],
+            S.VIOLATION_TYPE: ["NO PARKING", "NO PARKING", "NO PARKING", "NO PARKING"],
         }
     )
 
@@ -44,7 +45,10 @@ def test_congestion_index_monotonic_in_volume():
     zf = pd.DataFrame(
         {S.ZONE: ["A", "A2"], S.ZONE_KIND: ["junction", "junction"], I.PRED_COL: [2.0, 20.0]}
     )
-    ev = pd.DataFrame({S.ZONE: ["A", "A2"], S.ZONE_KIND: ["junction"] * 2, S.VEHICLE_TYPE: ["CAR", "CAR"]})
+    ev = pd.DataFrame({
+        S.ZONE: ["A", "A2"], S.ZONE_KIND: ["junction"] * 2,
+        S.VEHICLE_TYPE: ["CAR", "CAR"], S.VIOLATION_TYPE: ["NO PARKING", "NO PARKING"],
+    })
     out = I.congestion_index(zf, ev, cfg).set_index(S.ZONE)
     assert out.loc["A2", "congestion_index"] > out.loc["A", "congestion_index"]
 

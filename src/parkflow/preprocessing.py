@@ -100,6 +100,24 @@ def clean(df: pd.DataFrame, cfg: Config) -> tuple[pd.DataFrame, CleanStats]:
     df[S.VIOLATION_TYPE] = primary[keep]
     stats.dropped_non_parking = before - len(df)
 
+    # Step 3b: filter by validation status when configured.
+    # "approved_only" keeps only BTP-confirmed violations to remove false positives.
+    # By default, only hardcoded bad statuses (rejected / duplicate) are excluded.
+    if S.VALIDATION_STATUS in df.columns:
+        before = len(df)
+        if cfg.preprocessing.approved_only:
+            df = df[df[S.VALIDATION_STATUS].astype(str).str.lower() == "approved"]
+        else:
+            excluded = {s.lower() for s in cfg.preprocessing.exclude_statuses}
+            df = df[~df[S.VALIDATION_STATUS].astype(str).str.lower().isin(excluded)]
+        stats.details["dropped_by_validation_status"] = before - len(df)
+        log.info(
+            "Validation filter: kept %d / %d rows (approved_only=%s)",
+            len(df),
+            before,
+            cfg.preprocessing.approved_only,
+        )
+
     # Step 4: drop duplicate captures of the same event.
     dedupe_keys = [
         c

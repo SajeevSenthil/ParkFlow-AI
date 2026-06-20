@@ -95,12 +95,20 @@ class PriorityCfg:
 
 @dataclass(frozen=True)
 class CongestionCfg:
+    # PCU / Indo-HCM capacity model (headline "% capacity lost").
     pcu_weights: dict[str, float]
     default_pcu: float
     junction_road_factor: float
     side_street_factor: float
     max_capacity_reduction_pct: float
     saturation_pcu: float
+    # Multi-signal modulators folded into the impact estimate.
+    violation_severity_weights: dict[str, float]
+    default_violation_severity: float
+    peak_hours_morning: list[int]
+    peak_hours_evening: list[int]
+    peak_hour_multiplier: float
+    repeat_offender_threshold: int
 
 
 @dataclass(frozen=True)
@@ -116,6 +124,12 @@ class PatrolCfg:
 
 
 @dataclass(frozen=True)
+class PreprocessingCfg:
+    approved_only: bool = False
+    exclude_statuses: list[str] = field(default_factory=lambda: ["rejected", "duplicate"])
+
+
+@dataclass(frozen=True)
 class Config:
     paths: Paths
     spatial: SpatialCfg
@@ -126,6 +140,7 @@ class Config:
     congestion: CongestionCfg
     evaluation: EvaluationCfg
     patrol: PatrolCfg
+    preprocessing: PreprocessingCfg
     valid_violation_types: list[str]
     log_level: str
 
@@ -148,6 +163,11 @@ class Config:
             RiskBand(name=b["name"], max=float(b["max"]) if b["max"] != ".inf" else math.inf)
             for b in raw["risk_bands"]
         ]
+        pre_raw = raw.get("preprocessing", {})
+        preprocessing = PreprocessingCfg(
+            approved_only=bool(pre_raw.get("approved_only", False)),
+            exclude_statuses=list(pre_raw.get("exclude_statuses", ["rejected", "duplicate"])),
+        )
         return Config(
             paths=paths,
             spatial=SpatialCfg(**raw["spatial"]),
@@ -158,6 +178,7 @@ class Config:
             congestion=CongestionCfg(**raw["congestion"]),
             evaluation=EvaluationCfg(**raw["evaluation"]),
             patrol=PatrolCfg(**raw["patrol"]),
+            preprocessing=preprocessing,
             valid_violation_types=list(raw["valid_violation_types"]),
             log_level=raw.get("logging", {}).get("level", "INFO"),
         )
