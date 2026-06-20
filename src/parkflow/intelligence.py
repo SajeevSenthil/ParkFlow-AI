@@ -1,5 +1,5 @@
 """Post-prediction intelligence layers (PRD section 8):
-risk banding, disruption proxy, enforcement priority, patrol allocation.
+risk banding, congestion-impact index, enforcement priority, patrol allocation.
 
 These are deterministic business logic, not ML -- kept separate so they can be
 tuned/explained without retraining anything.
@@ -27,33 +27,43 @@ def risk_band(values: pd.Series, cfg: Config) -> pd.Series:
     return pd.cut(values, bins=edges, labels=names, right=True).astype(str)
 
 
-# --- 8.2 Disruption proxy (HEURISTIC, not measured congestion) --------------
-def zone_vehicle_weight(events: pd.DataFrame, cfg: Config) -> pd.Series:
-    """Mean road-blocking weight of vehicles seen at each zone."""
-    w = events[S.VEHICLE_TYPE].astype(str).str.upper().map(cfg.disruption.vehicle_weights)
-    w = w.fillna(cfg.disruption.default_vehicle_weight)
-    return w.groupby(events[S.ZONE]).mean().rename("veh_weight")
+# --- 8.2 Parking Congestion Impact Index (PCU + Indo-HCM principles) --------
+def zone_mean_pcu(events: pd.DataFrame, cfg: Config) -> pd.Series:
+    """Mean Passenger-Car-Unit (PCU) value of vehicles seen at each zone."""
+    pcu = events[S.VEHICLE_TYPE].astype(str).str.upper().map(cfg.congestion.pcu_weights)
+    pcu = pcu.fillna(cfg.congestion.default_pcu)
+    return pcu.groupby(events[S.ZONE]).mean().rename("mean_pcu")
 
 
-def disruption_proxy(
+def congestion_index(
     zone_frame: pd.DataFrame, events: pd.DataFrame, cfg: Config
 ) -> pd.DataFrame:
-    """Add a transparent disruption proxy column to a per-zone frame.
+    """Parking Congestion Impact Index, grounded in PCU + the HCM principle that
+    parked vehicles cut a road's saturation flow.
 
-    proxy = predicted_violations * mean_vehicle_weight * road_weight
-    Clearly a heuristic ranking aid -- NOT a congestion measurement.
+        pcu_load   = predicted_violations * mean_PCU * road_factor
+        est_cap_red% = max_cap * (1 - exp(-pcu_load / saturation_pcu))   [Indo-HCM-style]
+        congestion_index (0-100) = est_cap_red% / max_cap * 100
+
+    Uses only provided data + standard traffic-engineering constants (no external data).
     """
+    c = cfg.congestion
     out = zone_frame.copy()
-    veh_w = zone_vehicle_weight(events, cfg)
-    out = out.merge(veh_w.reset_index(), on=S.ZONE, how="left")
-    out["veh_weight"] = out["veh_weight"].fillna(cfg.disruption.default_vehicle_weight)
+    pcu = zone_mean_pcu(events, cfg)
+    out = out.merge(pcu.reset_index(), on=S.ZONE, how="left")
+    out["mean_pcu"] = out["mean_pcu"].fillna(c.default_pcu)
 
-    road_w = np.where(
+    road_factor = np.where(
         out.get(S.ZONE_KIND, "junction") == "junction",
-        cfg.disruption.junction_road_weight,
-        cfg.disruption.side_street_weight,
+        c.junction_road_factor,
+        c.side_street_factor,
     )
-    out["disruption_proxy"] = out[PRED_COL] * out["veh_weight"] * road_w
+    pcu_load = out[PRED_COL] * out["mean_pcu"] * road_factor
+    est_cap_red = c.max_capacity_reduction_pct * (1.0 - np.exp(-pcu_load / c.saturation_pcu))
+
+    out["pcu_load"] = pcu_load.round(2)
+    out["est_capacity_reduction_pct"] = est_cap_red.round(1)
+    out["congestion_index"] = (100.0 * est_cap_red / c.max_capacity_reduction_pct).round(1)
     return out
 
 
