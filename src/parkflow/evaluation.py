@@ -1,9 +1,20 @@
-"""Regression metrics for count targets (PRD 7.7)."""
+"""Regression + ranking metrics for sparse count targets (PRD 7.7).
+
+For sparse, zero-heavy data, MAE/RMSE alone are misleading. We also report ranking
+metrics that match the operational question ("did we flag the right hotspots?"):
+Top-K hit-rate per time slice and Precision-Recall AUC for hotspot classification.
+"""
 
 from __future__ import annotations
 
 import numpy as np
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import pandas as pd
+from sklearn.metrics import (
+    average_precision_score,
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+)
 
 
 def poisson_deviance(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -29,4 +40,47 @@ def regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, floa
         "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred))),
         "r2": float(r2_score(y_true, y_pred)),
         "poisson_deviance": poisson_deviance(y_true, y_pred),
+    }
+
+
+def hotspot_pr_auc(y_true: np.ndarray, y_pred: np.ndarray, threshold: float) -> float:
+    """PR-AUC (average precision) for the binary task 'is this cell a hotspot?'
+    (actual count >= threshold), scored by the predicted count. Robust to the heavy
+    class imbalance that makes plain accuracy meaningless here.
+    """
+    labels = (np.asarray(y_true, dtype=float) >= threshold).astype(int)
+    if labels.sum() == 0 or labels.sum() == len(labels):
+        return float("nan")
+    return float(average_precision_score(labels, np.asarray(y_pred, dtype=float)))
+
+
+def top_k_hit_rate(
+    frame: pd.DataFrame, time_col: str, y_true_col: str, y_pred_col: str, k: int
+) -> float:
+    """Mean overlap between the top-K predicted and top-K actual zones, per time slice.
+    1.0 = every period's K worst zones were correctly identified.
+    """
+    hits: list[float] = []
+    for _, g in frame.groupby(time_col):
+        if len(g) < k:
+            continue
+        top_pred = set(g.nlargest(k, y_pred_col).index)
+        top_true = set(g.nlargest(k, y_true_col).index)
+        hits.append(len(top_pred & top_true) / k)
+    return float(np.mean(hits)) if hits else float("nan")
+
+
+def ranking_metrics(
+    frame: pd.DataFrame,
+    time_col: str,
+    y_true_col: str,
+    y_pred_col: str,
+    threshold: float,
+    k: int,
+) -> dict[str, float]:
+    return {
+        f"top_{k}_hit_rate": top_k_hit_rate(frame, time_col, y_true_col, y_pred_col, k),
+        "hotspot_pr_auc": hotspot_pr_auc(
+            frame[y_true_col].to_numpy(), frame[y_pred_col].to_numpy(), threshold
+        ),
     }
