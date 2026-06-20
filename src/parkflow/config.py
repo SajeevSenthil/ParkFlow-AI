@@ -60,9 +60,10 @@ class ModelCfg:
     colsample_bytree: float
     min_child_weight: int
     random_state: int
+    tweedie_variance_power: float = 1.3
 
     def xgb_params(self) -> dict[str, Any]:
-        return {
+        params = {
             "objective": self.objective,
             "n_estimators": self.n_estimators,
             "max_depth": self.max_depth,
@@ -74,6 +75,9 @@ class ModelCfg:
             "tree_method": "hist",
             "n_jobs": -1,
         }
+        if "tweedie" in self.objective:
+            params["tweedie_variance_power"] = self.tweedie_variance_power
+        return params
 
 
 @dataclass(frozen=True)
@@ -90,11 +94,19 @@ class PriorityCfg:
 
 
 @dataclass(frozen=True)
-class DisruptionCfg:
-    vehicle_weights: dict[str, float]
-    default_vehicle_weight: float
-    junction_road_weight: float
-    side_street_weight: float
+class CongestionCfg:
+    pcu_weights: dict[str, float]
+    default_pcu: float
+    junction_road_factor: float
+    side_street_factor: float
+    max_capacity_reduction_pct: float
+    saturation_pcu: float
+
+
+@dataclass(frozen=True)
+class EvaluationCfg:
+    hotspot_threshold: float
+    top_k: int
 
 
 @dataclass(frozen=True)
@@ -111,7 +123,8 @@ class Config:
     model: ModelCfg
     risk_bands: list[RiskBand]
     priority: PriorityCfg
-    disruption: DisruptionCfg
+    congestion: CongestionCfg
+    evaluation: EvaluationCfg
     patrol: PatrolCfg
     valid_violation_types: list[str]
     log_level: str
@@ -142,7 +155,8 @@ class Config:
             model=ModelCfg(**raw["model"]),
             risk_bands=risk_bands,
             priority=PriorityCfg(**raw["priority"]),
-            disruption=DisruptionCfg(**raw["disruption"]),
+            congestion=CongestionCfg(**raw["congestion"]),
+            evaluation=EvaluationCfg(**raw["evaluation"]),
             patrol=PatrolCfg(**raw["patrol"]),
             valid_violation_types=list(raw["valid_violation_types"]),
             log_level=raw.get("logging", {}).get("level", "INFO"),
