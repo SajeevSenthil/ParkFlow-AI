@@ -5,6 +5,7 @@ Junction Risk tabs.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from . import schema as S
@@ -101,3 +102,55 @@ def junction_risk_table(
     table.insert(0, "rank", range(1, len(table) + 1))
     log.info("Built junction-risk table for %d junctions", len(table))
     return table
+
+
+def repeat_offender_tables(events: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Repeat-offender analytics from the (anonymized but consistent) vehicle_number.
+
+    Returns:
+      * top_offenders  — vehicles with the most violations, and how many zones they hit.
+      * zone_repeat    — per zone, the share of violations from repeat offenders.
+        A high *unique*-offender share suggests an infrastructure problem (bad signage,
+        no legal parking); a high *repeat* share suggests willful disregard → towing.
+    """
+    if S.VEHICLE_NUMBER not in events.columns:
+        return pd.DataFrame(), pd.DataFrame()
+
+    counts = events[S.VEHICLE_NUMBER].value_counts()
+    repeat_ids = set(counts[counts > 1].index)
+
+    top_offenders = (
+        events[events[S.VEHICLE_NUMBER].isin(repeat_ids)]
+        .groupby(S.VEHICLE_NUMBER)
+        .agg(violations=(S.VEHICLE_NUMBER, "size"), zones_hit=(S.ZONE, "nunique"))
+        .reset_index()
+        .sort_values("violations", ascending=False)
+        .head(25)
+        .reset_index(drop=True)
+    )
+
+    ev = events.assign(is_repeat=events[S.VEHICLE_NUMBER].isin(repeat_ids))
+    zone_repeat = (
+        ev.groupby(S.ZONE)
+        .agg(
+            total_violations=(S.VEHICLE_NUMBER, "size"),
+            unique_vehicles=(S.VEHICLE_NUMBER, "nunique"),
+            repeat_violations=("is_repeat", "sum"),
+        )
+        .reset_index()
+    )
+    zone_repeat["repeat_offender_share_pct"] = (
+        100 * zone_repeat["repeat_violations"] / zone_repeat["total_violations"]
+    ).round(1)
+    zone_repeat["signal"] = np.where(
+        zone_repeat["repeat_offender_share_pct"] >= 40,
+        "willful (towing)",
+        "infrastructure (signage/space)",
+    )
+    zone_repeat = zone_repeat.sort_values("total_violations", ascending=False).reset_index(drop=True)
+    log.info(
+        "Repeat-offender analytics: %d repeat vehicles, %.1f%% of all violations",
+        len(repeat_ids),
+        100 * counts[counts > 1].sum() / max(int(counts.sum()), 1),
+    )
+    return top_offenders, zone_repeat
