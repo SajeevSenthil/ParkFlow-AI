@@ -131,8 +131,8 @@ Get this wrong and MAE/R²/the whole model are meaningless. This is the first mo
 Hourly × junction will likely be extremely sparse (most cells 0 or 1) across hundreds of junctions. Evaluate **3–4 hour bins** (morning / midday / evening / night) or **daily-per-junction** against hourly once record volume is known. Pick the finest granularity that still carries signal.
 
 ### 7.5 Model
-- **Primary:** XGBoost Regressor with **`objective="count:poisson"`** (target is non-negative counts, not Gaussian — squared error is the wrong loss).
-- **Rationale:** strong on tabular data, handles nonlinearity & mixed feature types, feature-importance support, performs well with temporal+spatial features.
+- **Primary:** XGBoost Regressor with **`objective="reg:tweedie"`** (`tweedie_variance_power≈1.3`). The Tweedie compound Poisson-Gamma distribution models non-negative, zero-heavy, overdispersed counts better than plain Poisson — a measurable MAE/PR-AUC gain on this data.
+- **Rationale:** strong on tabular data, handles nonlinearity & mixed feature types, native SHAP via `pred_contribs`, performs well with temporal+spatial features.
 - **Categorical encoding:** use **frequency / target encoding** for `junction_name` (high cardinality + a large `No Junction` bucket), not raw label encoding.
 
 ### 7.6 Inputs / Output
@@ -143,7 +143,8 @@ Hourly × junction will likely be extremely sparse (most cells 0 or 1) across hu
 - **Strategy:** time-based split — train on earlier periods, test on later periods (simulates real forecasting).
 - **Mandatory baseline:** compare XGBoost against a **seasonal-naive baseline** ("predict this junction's historical average for this hour-of-week"). For recurring temporal data this baseline is strong; if the model can't beat it, the ML adds nothing — and showing this comparison honestly is a credibility win.
 - **Leakage guard:** split by time *first*, then compute lag/rolling features within each side respecting order. Features must never cross the train/test boundary.
-- **Metrics:** MAE, RMSE, R². For zero-inflated counts also report **Poisson deviance**, and consider reporting error on high-violation junctions separately (those are the ones that matter operationally).
+- **Metrics:** MAE, RMSE, R², **Poisson deviance**, plus **ranking metrics** that match the operational question on sparse/imbalanced data: **Top-K hit-rate** (did we flag the right worst zones per window?) and **hotspot PR-AUC** (robust where accuracy is meaningless). Model wins on MAE/R²/Poisson/PR-AUC; the seasonal mean stays competitive on Top-K at fine granularity (reported honestly).
+- **Explainability:** exact **TreeSHAP** (XGBoost native `pred_contribs`, no external dep) gives global feature importance and per-zone "why this zone?" reasons in the dashboard.
 
 ---
 
@@ -157,12 +158,14 @@ Hourly × junction will likely be extremely sparse (most cells 0 or 1) across hu
 | 16 – 25 | High |
 | > 25 | Critical |
 
-### 8.2 Disruption Proxy (bridges the literal problem statement)
-The problem statement asks to *quantify impact on traffic flow*, which we cannot measure (no traffic/queue/road-width data — see §2.2). Instead of leaving it empty, we expose a **transparent heuristic proxy**, clearly labeled as *not measured congestion*:
+### 8.2 Parking Congestion Impact Index (answers the literal problem statement)
+The problem statement asks to *quantify impact on traffic flow*. We have no traffic telemetry (no speed/queue/road-width — §2.2) **and the contest forbids external datasets**, so we estimate impact from **domain theory + the provided data only**:
 ```
-Disruption Proxy = violation_count × vehicle_weight × road/junction weight
+pcu_load            = predicted_violations × mean_PCU(zone) × road_factor
+est_capacity_red %  = max_cap × (1 − exp(−pcu_load / saturation_pcu))   # Indo-HCM-style
+Congestion Index    = est_capacity_red% / max_cap × 100   (0–100)
 ```
-(e.g., a bus on a main-road junction ≫ a scooter on a side street). Optionally **correlate with the public BTP congestion map** ("do high-violation days line up with high-congestion days?") to close the loop honestly without fabricating queue lengths.
+**PCU** (Passenger Car Units, Indo-HCM/IRC) are standard traffic-engineering constants — a bus ≈ 3.5, a scooter ≈ 0.5 — not external data. The HCM principle that parked vehicles cut a road's *saturation flow* turns a violation forecast into an **estimated % of road capacity lost**, which is exactly what the brief asks for and is fully defensible under the no-external-data rule. (OSMnx road geometry / TomTom speeds would sharpen this but are **out of scope — external data → disqualification risk.**)
 
 ### 8.3 Hotspot Generation
 - **Current hotspots:** from historical violation density.

@@ -13,7 +13,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from xgboost import XGBRegressor
+from xgboost import DMatrix, XGBRegressor
 
 from .config import Config
 from .logging_utils import get_logger
@@ -48,6 +48,16 @@ class ViolationForecaster:
             {"feature": self.feature_cols, "importance": self.model.feature_importances_}
         )
         return imp.sort_values("importance", ascending=False).head(top).reset_index(drop=True)
+
+    def shap_contributions(self, df: pd.DataFrame) -> tuple[np.ndarray, float]:
+        """Exact TreeSHAP feature contributions via XGBoost's native ``pred_contribs``
+        (no external shap dependency). Returns (contribs[n, n_features], base_value),
+        in the model's margin/link space.
+        """
+        booster = self.model.get_booster()
+        dmat = DMatrix(df[self.feature_cols], feature_names=self.feature_cols)
+        raw = booster.predict(dmat, pred_contribs=True)  # shape (n, n_features + 1)
+        return raw[:, :-1], float(raw[0, -1])
 
     def save(self, path: str | Path) -> Path:
         path = Path(path)
