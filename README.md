@@ -119,6 +119,16 @@ A single decision cockpit for traffic command. Eight tabs:
 |---|---|
 | ![Heatmap](docs/screenshots/02-hotspot-heatmap.png) | ![Model](docs/screenshots/06-model-metrics.png) |
 
+**More views**
+
+| Junction risk assessment | Repeat-offender intelligence |
+|---|---|
+| ![Junction Risk](docs/screenshots/07-junction-risk.png) | ![Repeat Offenders](docs/screenshots/08-repeat-offenders.png) |
+
+| Temporal analytics (peak hours / day×hour) | Feature importance + SHAP |
+|---|---|
+| ![Analytics](docs/screenshots/09-analytics.png) | ![Feature importance](docs/screenshots/10-feature-importance.png) |
+
 ---
 
 ## 6. How it works (technical)
