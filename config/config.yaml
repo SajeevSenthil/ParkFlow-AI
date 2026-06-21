@@ -5,6 +5,13 @@ paths:
   raw_data: "dataset/jan to may police violation_anonymized791b166.csv"   # real BTP export
   artifacts_dir: artifacts
 
+preprocessing:
+  # When true, only records with validation_status == "approved" are kept for
+  # model training and hotspot computation. Set false to include all records.
+  approved_only: false
+  # Statuses dropped when approved_only is false (confirmed false positives).
+  exclude_statuses: ["rejected", "duplicate"]
+
 spatial:
   # Junction is the primary zone; coordinate grid is the fallback for "No Junction" rows.
   grid_decimals: 2          # ~1.1 km cells. 2 dp keeps fallback-zone count sane (~550);
@@ -45,8 +52,9 @@ priority:
   w_junction: 0.1
 
 # Parking Congestion Impact Index (PRD 8.2).
-# Grounded in PCU (Passenger Car Units, Indo-HCM / IRC) + the HCM principle that parked
-# vehicles reduce a road's saturation flow. Uses ONLY the provided data + standard
+# Headline = estimated % road capacity lost, grounded in PCU (Passenger Car Units,
+# Indo-HCM/IRC) + the HCM saturation-flow principle, and modulated by data-observed
+# signals (violation severity, peak-hour). Uses ONLY provided data + standard
 # traffic-engineering constants -- NO external datasets.
 congestion:
   pcu_weights:                  # passenger-car-equivalents per vehicle category
@@ -68,6 +76,27 @@ congestion:
   side_street_factor: 1.0
   max_capacity_reduction_pct: 60  # on-street parking cuts capacity ~17-90% (VISSIM/Indo-HCM); cap here
   saturation_pcu: 25            # PCU-load at which capacity reduction approaches the cap
+
+  # Carriageway-blocking severity per violation type (DOUBLE PARKING blocks a moving
+  # lane directly; MAIN ROAD narrows the carriageway). Modulates the impact estimate.
+  violation_severity_weights:
+    "DOUBLE PARKING": 3.0
+    "PARKING IN A MAIN ROAD": 2.5
+    "PARKING NEAR TRAFFIC LIGHT OR ZEBRA CROSS": 2.0
+    "PARKING NEAR ROAD CROSSING": 2.0
+    "PARKING OPPOSITE TO ANOTHER PARKED VEHICLE": 1.8
+    "PARKING NEAR BUSTOP/SCHOOL/HOSPITAL ETC": 1.5
+    "NO PARKING": 1.2
+    "WRONG PARKING": 1.0
+    "PARKING ON FOOTPATH": 1.0
+    "PARKING OTHER THAN BUS STOP": 1.0
+  default_violation_severity: 1.0
+  # IST hour ranges considered peak congestion windows (impact amplified).
+  peak_hours_morning: [7, 8, 9, 10]
+  peak_hours_evening: [17, 18, 19]
+  peak_hour_multiplier: 1.5
+  # Vehicles seen > this many times at a zone count as repeat offenders.
+  repeat_offender_threshold: 2
 
 # Hotspot threshold for ranking metrics (Top-K / PR-AUC) -- a cell is a "hotspot"
 # if its actual count is at/above this value.
