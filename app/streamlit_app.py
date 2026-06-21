@@ -16,7 +16,7 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 ART = ROOT / "artifacts"
 
-st.set_page_config(page_title="ParkFlow-AI", page_icon="🅿️", layout="wide")
+st.set_page_config(page_title="ParkFlow-AI", layout="wide")
 
 
 @st.cache_data
@@ -50,7 +50,7 @@ shap_global = load("shap_global")
 if len(events) and "created_datetime" in events:
     events["created_datetime"] = pd.to_datetime(events["created_datetime"], errors="coerce")
 
-st.title("🅿️ ParkFlow-AI — Parking Enforcement Intelligence")
+st.title("ParkFlow-AI — Parking Enforcement Intelligence")
 st.caption("Spatial-temporal forecasting of parking violations → hotspots, priority, patrols.")
 
 # --- Model staleness warning ---
@@ -61,11 +61,11 @@ if "pipeline_run_at" in metrics:
         data_to = metrics.get("data_date_range", {}).get("to", "unknown")
         if days_stale > 7:
             st.warning(
-                f"⚠️ Model last trained **{days_stale} days ago** "
+                f"Model last trained **{days_stale} days ago** "
                 f"(data up to {data_to}). Run `parkflow run` to refresh predictions."
             )
         elif days_stale > 0:
-            st.info(f"ℹ️ Model trained **{days_stale} day(s) ago** · data up to {data_to}.")
+            st.info(f"Model trained **{days_stale} day(s) ago** · data up to {data_to}.")
     except Exception:
         pass
 
@@ -270,7 +270,7 @@ with tabs[2]:
                 use_container_width=True,
             )
         st.caption(
-            "ℹ️ **Parking Congestion Impact Index (0–100)** estimates lost road capacity via "
+            "**Parking Congestion Impact Index (0–100)** estimates lost road capacity via "
             "PCU × HCM saturation-flow principles, modulated by violation severity and peak-hour — "
             "from the provided data + standard traffic-engineering constants (no external data)."
         )
@@ -328,11 +328,8 @@ with tabs[3]:
 
         # --- Text cards per team ---
         for _, r in patrol.iterrows():
-            risk_emoji = {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🟢"}.get(
-                str(r.get("risk", "")), "⚪"
-            )
             st.markdown(
-                f"**{r['team']} → {r['zone']}** {risk_emoji}  "
+                f"**{r['team']} → {r['zone']}**  "
                 f"&nbsp;&nbsp;priority **{r['priority_score']}** · "
                 f"risk **{r.get('risk', '—')}** · "
                 f"predicted **{r['predicted_violations']}** violations"
@@ -603,7 +600,7 @@ with tabs[7]:
     if metrics:
         comp = pd.DataFrame({"baseline": metrics["baseline"], "model": metrics["model"]})
         st.dataframe(comp, use_container_width=True)
-        verdict = "✅ Model beats baseline" if metrics.get("model_beats_baseline") else "⚠️ Model does NOT beat baseline"
+        verdict = "Model beats baseline" if metrics.get("model_beats_baseline") else "Model does NOT beat baseline"
         st.markdown(f"**{verdict}** (lower MAE / Poisson deviance is better; higher R² is better)")
 
         if "ranking" in metrics:
