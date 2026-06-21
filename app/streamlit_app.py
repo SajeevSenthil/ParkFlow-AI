@@ -75,7 +75,7 @@ c1.metric("Total violations", f"{len(events):,}" if len(events) else int(hotspot
 c2.metric("Active hotspots (zones)", len(hotspots))
 high = int(forecast["risk"].isin(["High", "Critical"]).sum()) if "risk" in forecast else 0
 c3.metric("High/Critical zones (next window)", high)
-c4.metric("Predicted violations (next window)", round(float(forecast["predicted_violations"].sum()), 1) if len(forecast) else 0)
+c4.metric("Predicted violations (next window)", int(round(float(forecast["predicted_violations"].sum()))) if len(forecast) else 0)
 
 tabs = st.tabs(
     ["Overview", "Hotspot Analysis", "Prediction Center", "Enforcement",
@@ -99,7 +99,7 @@ with tabs[0]:
             map_hot["risk"] = "Low"
             map_hot["predicted_violations"] = 0
 
-        RISK_COLORS = {"Low": "green", "Medium": "goldenrod", "High": "orange", "Critical": "red"}
+        RISK_COLORS = {"Low": "#2e7d32", "Medium": "#f59e0b", "High": "#ef4444", "Critical": "#991b1b"}
         fig_ov = px.scatter_mapbox(
             map_hot.sort_values("historical_violations", ascending=False),
             lat="zone_lat",
@@ -123,6 +123,10 @@ with tabs[0]:
         )
         fig_ov.update_layout(margin=dict(l=0, r=0, t=30, b=0), legend_title_text="Next Risk")
         st.plotly_chart(fig_ov, use_container_width=True)
+        st.caption(
+            "Each bubble is a zone — size = total historical violations, colour = predicted risk "
+            "for the next window. The large red bubbles are the chronic, high-risk hotspots."
+        )
         st.dataframe(hotspots.head(20), use_container_width=True)
 
 # ======================== Hotspot Analysis =======================
@@ -157,6 +161,10 @@ with tabs[1]:
                 fig_donut.update_traces(textposition="inside", textinfo="percent+label")
                 fig_donut.update_layout(margin=dict(l=0, r=0, t=30, b=0), showlegend=True)
                 st.plotly_chart(fig_donut, use_container_width=True)
+                st.caption(
+                    "How violation records were validated by officers. We keep approved records and "
+                    "drop rejected/duplicate ones so the analysis isn't skewed by false positives."
+                )
 
         # --- Filters row ---
         col1, col2, col3, col4 = st.columns(4)
@@ -185,12 +193,17 @@ with tabs[1]:
         if len(f):
             sample = f.sample(min(len(f), 20000), random_state=0)
             fig = px.density_mapbox(
-                sample, lat="latitude", lon="longitude", radius=7,
+                sample, lat="latitude", lon="longitude", radius=8,
                 center=dict(lat=float(sample["latitude"].median()), lon=float(sample["longitude"].median())),
                 zoom=10, mapbox_style="open-street-map", height=520,
+                color_continuous_scale="Turbo",  # distinct hues per density band (blue->green->yellow->red)
             )
             fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
             st.plotly_chart(fig, use_container_width=True)
+            st.caption(
+                "Colour shows violation **density** — blue = sparse, green/yellow = moderate, "
+                "red = the most intense parking-violation clusters."
+            )
 
             top = (
                 f.groupby("zone").size().rename("violations").reset_index()
@@ -209,7 +222,7 @@ with tabs[2]:
         map_df = forecast.dropna(subset=["zone_lat", "zone_lon"]).copy()
         map_df = map_df[map_df["predicted_violations"] > 0]
         if len(map_df):
-            RISK_COLORS = {"Low": "green", "Medium": "goldenrod", "High": "orange", "Critical": "red"}
+            RISK_COLORS = {"Low": "#2e7d32", "Medium": "#f59e0b", "High": "#ef4444", "Critical": "#991b1b"}
             fig_pred = px.scatter_mapbox(
                 map_df.sort_values("predicted_violations", ascending=False),
                 lat="zone_lat",
@@ -233,6 +246,10 @@ with tabs[2]:
             )
             fig_pred.update_layout(margin=dict(l=0, r=0, t=30, b=0), legend_title_text="Risk")
             st.plotly_chart(fig_pred, use_container_width=True)
+            st.caption(
+                "The model's forecast for the next time window — bubble size = predicted violations, "
+                "colour = risk band. Shows where to expect trouble *before* it happens."
+            )
         else:
             st.info("No zones with predicted violations > 0.")
 
@@ -252,23 +269,28 @@ with tabs[2]:
                 x="risk",
                 y="zones",
                 color="risk",
-                color_discrete_map={"Low": "green", "Medium": "goldenrod", "High": "orange", "Critical": "red"},
+                color_discrete_map={"Low": "#2e7d32", "Medium": "#f59e0b", "High": "#ef4444", "Critical": "#991b1b"},
                 title="Zones by Risk Band",
             )
             fig_risk.update_layout(showlegend=False, margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig_risk, use_container_width=True)
+            st.caption(
+                "How many zones fall into each risk band next window. Most are Low; the few "
+                "High/Critical zones are where enforcement should concentrate."
+            )
         with col_table:
             st.caption("Top 25 zones — next window")
             display_cols = [c for c in ["zone", "predicted_violations", "risk", "priority_score",
                                         "congestion_index", "est_capacity_reduction_pct"]
                             if c in forecast.columns]
-            st.dataframe(
+            pred_table = (
                 forecast[display_cols]
                 .sort_values("predicted_violations", ascending=False)
                 .head(25)
-                .reset_index(drop=True),
-                use_container_width=True,
+                .reset_index(drop=True)
             )
+            pred_table["predicted_violations"] = pred_table["predicted_violations"].round().astype(int)
+            st.dataframe(pred_table, use_container_width=True)
         st.caption(
             "**Parking Congestion Impact Index (0–100)** estimates lost road capacity via "
             "PCU × HCM saturation-flow principles, modulated by violation severity and peak-hour — "
@@ -278,6 +300,11 @@ with tabs[2]:
         # --- Why is a zone flagged? (SHAP) ---
         if len(shap_reasons):
             st.markdown("#### Why is a zone flagged? (SHAP)")
+            st.caption(
+                "Use the dropdown to pick any zone and see *why* the model flagged it. "
+                "Each line is a feature's contribution — ▲ pushes the predicted violations **up**, "
+                "▼ pushes it **down** (larger SHAP value = stronger effect)."
+            )
             zsel = st.selectbox(
                 "Zone",
                 forecast.sort_values("predicted_violations", ascending=False)["zone"].head(40).tolist(),
@@ -325,6 +352,10 @@ with tabs[3]:
             fig_patrol.update_traces(marker=dict(size=18, opacity=0.85))
             fig_patrol.update_layout(margin=dict(l=0, r=0, t=30, b=0), legend_title_text="Team")
             st.plotly_chart(fig_patrol, use_container_width=True)
+            st.caption(
+                "Recommended deployment — each coloured marker is a patrol team placed at a "
+                "top-priority zone. Teams are spread apart so coverage isn't duplicated."
+            )
 
         # --- Text cards per team ---
         for _, r in patrol.iterrows():
@@ -332,7 +363,7 @@ with tabs[3]:
                 f"**{r['team']} → {r['zone']}**  "
                 f"&nbsp;&nbsp;priority **{r['priority_score']}** · "
                 f"risk **{r.get('risk', '—')}** · "
-                f"predicted **{r['predicted_violations']}** violations"
+                f"predicted **{int(round(r['predicted_violations']))}** violations"
             )
 
     st.divider()
@@ -341,7 +372,9 @@ with tabs[3]:
         disp = [c for c in ["zone", "priority_score", "risk", "predicted_violations",
                             "congestion_index", "est_capacity_reduction_pct"]
                 if c in forecast.columns]
-        st.dataframe(forecast[disp].head(25), use_container_width=True)
+        enf_table = forecast[disp].head(25).reset_index(drop=True)
+        enf_table["predicted_violations"] = enf_table["predicted_violations"].round().astype(int)
+        st.dataframe(enf_table, use_container_width=True)
 
 # ========================= Analytics Center ======================
 with tabs[4]:
@@ -371,6 +404,10 @@ with tabs[4]:
             )
             fig_h.update_layout(coloraxis_showscale=False, margin=dict(t=30, b=0))
             st.plotly_chart(fig_h, use_container_width=True)
+            st.caption(
+                "How violations spread across the 24-hour day. "
+                "The tall bars mark peak enforcement hours — schedule patrols around them."
+            )
         with col_d:
             fig_d = px.bar(
                 by_dow, x="day", y="violations",
@@ -381,6 +418,10 @@ with tabs[4]:
             )
             fig_d.update_layout(coloraxis_showscale=False, margin=dict(t=30, b=0))
             st.plotly_chart(fig_d, use_container_width=True)
+            st.caption(
+                "Which weekdays see the most violations. "
+                "Compare weekday vs weekend load to plan staffing across the week."
+            )
 
         # --- Row 2: Hour × Day-of-Week intensity heatmap ---
         st.subheader("Enforcement intensity grid")
@@ -443,11 +484,19 @@ with tabs[4]:
             st.plotly_chart(fig_vt, use_container_width=True)
 
         # --- Row 4: Weekly trend + vehicle types ---
+        st.subheader("Weekly violation trend")
+        st.caption(
+            "Total violations recorded each week across the dataset. "
+            "Rising or falling slopes flag emerging or cooling problem periods over time."
+        )
         by_week = events.assign(week=ts.dt.to_period("W").astype(str)).groupby("week").size()
-        st.caption("Weekly violation trend")
         st.line_chart(by_week)
 
-        st.caption("Top vehicle types")
+        st.subheader("Top vehicle types")
+        st.caption(
+            "Which vehicle categories commit the most parking violations. "
+            "Heavier vehicles (buses, LGVs) block more road, so their share matters for congestion."
+        )
         st.bar_chart(events["vehicle_type"].astype(str).str.upper().value_counts().head(8))
 
 # ========================== Junction Risk ========================
@@ -459,7 +508,7 @@ with tabs[5]:
             {"zone_lat", "zone_lon"}.issubset(junction_risk.columns) else pd.DataFrame()
 
         if len(jmap):
-            RISK_COLORS = {"Low": "green", "Medium": "goldenrod", "High": "orange", "Critical": "red"}
+            RISK_COLORS = {"Low": "#2e7d32", "Medium": "#f59e0b", "High": "#ef4444", "Critical": "#991b1b"}
             jmap["risk"] = jmap["risk"].fillna("Low") if "risk" in jmap.columns else "Low"
             fig_jmap = px.scatter_mapbox(
                 jmap.sort_values("historical_violations", ascending=False),
@@ -486,6 +535,10 @@ with tabs[5]:
             )
             fig_jmap.update_layout(margin=dict(l=0, r=0, t=30, b=0), legend_title_text="Risk")
             st.plotly_chart(fig_jmap, use_container_width=True)
+            st.caption(
+                "Every named junction — bubble size = historical violations, colour = risk. "
+                "Quickly spots the junctions that are chronic enforcement problems."
+            )
 
         # --- Table + priority bar side by side ---
         col_jtbl, col_jbar = st.columns([3, 2])
@@ -510,6 +563,10 @@ with tabs[5]:
                 margin=dict(l=0, r=0, t=30, b=0),
             )
             st.plotly_chart(fig_jbar, use_container_width=True)
+            st.caption(
+                "The 15 highest-priority junctions ranked by score. "
+                "The longest bars are the junctions to act on first."
+            )
     else:
         st.info("No junction-level rows available.")
 
@@ -562,6 +619,10 @@ with tabs[6]:
                 margin=dict(l=0, r=0, t=30, b=0),
             )
             st.plotly_chart(fig_ro_bar, use_container_width=True)
+            st.caption(
+                "Total violations contributed by repeat offenders at each zone. Long bars mark "
+                "zones where the same vehicles keep offending — candidates for towing / sustained patrols."
+            )
 
         # --- Spatial heatmap of repeat offenders ---
         if len(events) and "latitude" in events.columns:
@@ -585,11 +646,18 @@ with tabs[6]:
                 )
                 fig_ro_map.update_layout(margin=dict(l=0, r=0, t=30, b=0))
                 st.plotly_chart(fig_ro_map, use_container_width=True)
+                st.caption(
+                    "Heatmap of where repeat-offender vehicles are caught. Hot areas mark recurring "
+                    "blocker hotspots — distinct from one-off, scattered violations."
+                )
 
         # --- Vehicle type breakdown of offenders ---
         if "vehicle_type" in repeat_offenders.columns:
             vt_ro = repeat_offenders["vehicle_type"].astype(str).str.upper().value_counts().head(8)
-            st.caption("Repeat offenders by vehicle type")
+            st.caption(
+                "Which vehicle categories the repeat offenders belong to. "
+                "Heavier categories matter more — they block more road space per vehicle."
+            )
             st.bar_chart(vt_ro)
     else:
         st.info("No repeat offender data found. Run `parkflow run` to generate the artifact.")
@@ -674,6 +742,10 @@ with tabs[7]:
             margin=dict(l=0, r=0, t=30, b=0),
         )
         st.plotly_chart(fig_fi, use_container_width=True)
+        st.caption(
+            "How often each feature is used to split the trees. Zone identity and recent rolling "
+            "activity dominate — the model leans on *where* and *how busy a zone has recently been*."
+        )
 
     # --- Global SHAP importance (mean |SHAP|) ---
     if len(shap_global):
@@ -686,3 +758,7 @@ with tabs[7]:
         )
         fig_sg.update_layout(coloraxis_showscale=False, margin=dict(l=0, r=0, t=30, b=0))
         st.plotly_chart(fig_sg, use_container_width=True)
+        st.caption(
+            "Average magnitude of each feature's effect on the forecast (mean |SHAP|). "
+            "Confirms historical zone activity and 7-day momentum are the strongest drivers."
+        )
