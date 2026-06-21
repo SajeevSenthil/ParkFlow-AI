@@ -289,16 +289,22 @@ Dataset path is set in `config/config.yaml` (`paths.raw_data`).
 | Live deployment | _add link_ |
 | GitHub repository | https://github.com/SajeevSenthil/ParkFlow-AI |
 
----
-
-## 10. Team
-
-| Name | Role |
-|---|---|
-| _add name_ | _add role_ |
-| _add name_ | _add role_ |
-| _add name_ | _add role_ |
 
 ---
 
+![Material wave loading](https://github.com/user-attachments/assets/a08255eb-9647-471d-9881-61871332249f)
+
+## Developed with ❤️ by Tensor Troops
+
+### {
+
+### [Jaswanth Saravanan](https://github.com/Jaswanth-006) ,
+
+### [Sajeev Senthil](https://github.com/SajeevSenthil) ,
+
+### [Abiruth](https://github.com/abiruth29),
+
+### [Suganth K](https://github.com/suganth07)
+
+### }
 <p align="center"><b>From reactive patrols to proactive, data-driven parking enforcement.</b></p>
