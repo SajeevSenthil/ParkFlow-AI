@@ -8,7 +8,7 @@ violations will spike, quantifies how much they choke traffic, and tells patrols
 go — turning reactive enforcement into proactive, data-driven deployment.
 </p>
 
-<p align="center"><em>Gridlock Hackathon 2.0 (Flipkart x BTP) — Problem Statement 1</em></p>
+<p align="center"><em> Flipkart Gridlock Hackathon 2.0 </em></p>
 
 ---
 
