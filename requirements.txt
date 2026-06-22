@@ -11,6 +11,9 @@ streamlit>=1.33
 plotly>=5.20
 pydeck>=0.9
 
+# Route optimization (optional: greedy fallback used if absent) -- patrol VRP
+ortools>=9.8
+
 # Dev
 pytest>=8.0
 ruff>=0.4

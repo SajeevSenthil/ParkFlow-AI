@@ -182,19 +182,32 @@ Output: ranked enforcement zones. (`Junction Weight` defined in §13.)
 ### 8.5 Patrol Recommendation Engine
 Allocate `N` available patrol teams (N is an input, not fixed) to priority zones via a **greedy allocation with spatial spread** — once a junction is assigned, nearby junctions are down-weighted so teams aren't all sent to one cluster. Output: recommended zones per team, time-of-day-aware deployment schedule, daily enforcement action list.
 
+**8.5b — Route optimization (OR-Tools CVRP).** Beyond one-stop-per-team greedy, solve a Capacitated Vehicle Routing Problem so each team drives an *ordered* route through up to `zones_per_team` top-priority zones, minimizing total travel distance on a **haversine matrix built from zone coordinates** (no external road network or API). Priority-scaled node disjunctions make the solver prefer the highest-priority zones. Falls back to greedy spatial-spread when OR-Tools is unavailable. `intelligence.route_patrols()` → `patrol_routes.csv`.
+
+### 8.6 Economic Impact (business framing)
+Translate the forecast into **rupees of commuter productivity lost**: predicted violations → estimated road-capacity loss (reuse 8.2) → vehicle-hours of delay → ₹, using **published constants only** (value of time ≈ ₹120/commuter-hour, NTDPC-2014 inflated; occupancy ≈ 1.4, RITES). `economics.economic_impact()` → `economic_impact.csv` + `economic_summary` in `metrics.json`. No external data.
+
+### 8.7 Displacement Simulation (behavioural response)
+Model the offender reaction to enforcement: a *covered* zone sheds `displaced_fraction` of its predicted violations to the nearest *uncovered* zone within `displacement_radius_km` (else the share is suppressed). Compare a route-optimized layout against a naive same-size spatial spread to quantify **blindspot leakage**. `displacement.simulate_displacement()` / `compare_layouts()` → `displacement.csv` + `displacement_summary`. Reported honestly — the routed layout is not assumed to always win.
+
 ---
 
 ## 9. Deliverables
 
 ### Core
 1. **Illegal Parking Hotspot Heatmap** — interactive city-wide heatmap, location & police-station density.
-2. **Future Violation Hotspot Prediction** — predicted locations, expected counts/risk, future heatmap.
+2. **Future Violation Hotspot Prediction** — predicted locations, expected counts/risk, future heatmap; **rolling 24h multi-horizon timeline** (`forecast_timeline.csv`).
 3. **Enforcement Priority Ranking** — ranked zones, priority scores, High/Medium/Low classes.
-4. **Smart Patrol Recommendation Engine** — recommended zones, schedule, daily action list.
+4. **Smart Patrol Recommendation Engine** — recommended zones, schedule, daily action list; **route-optimized routes** (`patrol_routes.csv`).
 
 ### Supporting Analytics
 5. **Temporal Violation Analytics** — hour/day/week/month trends, peak periods.
 6. **Junction Risk Assessment** — high-risk junction list, per-junction stats, severity ranking.
+7. **Economic Impact** — rupee cost of commuter delay per zone (`economic_impact.csv`).
+8. **Displacement Analysis** — covered-zone shedding vs blindspot absorption (`displacement.csv`).
+
+### 9.2 Operator Workflow
+Confirm / override / mark-complete deployments from the Enforcement tab, persisted to `artifacts/enforcement_log.db` (stdlib `sqlite3`, `operations.py`) — turns the read-only dashboard into an operations tool, kept separate from the precomputed ML artifacts.
 
 ---
 
