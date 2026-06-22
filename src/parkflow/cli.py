@@ -18,7 +18,7 @@ log = get_logger("cli")
 
 
 def _cmd_run(args: argparse.Namespace, cfg: Config) -> int:
-    result = pipeline.run(cfg)
+    result = pipeline.run(cfg, horizon=args.horizon, live=args.live)
     m = result.metrics
     log.info(
         "Done. MAE model=%.3f baseline=%.3f -> %s",
@@ -44,6 +44,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     r = sub.add_parser("run", help="run the full pipeline")
+    r.add_argument(
+        "--horizon", type=int, default=None,
+        help="number of future bins to forecast recursively (default: config forecast_horizon_bins)",
+    )
+    r.add_argument(
+        "--live", action="store_true",
+        help="relabel the forecast timeline to start now() ('as if run against live feeds'); "
+             "does not alter which historical data feeds the model",
+    )
     r.set_defaults(func=_cmd_run)
 
     i = sub.add_parser("info", help="print resolved configuration")
