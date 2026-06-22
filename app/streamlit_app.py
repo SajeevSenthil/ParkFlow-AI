@@ -664,25 +664,66 @@ with tabs[6]:
 
 # ============================== Model ============================
 with tabs[7]:
-    st.subheader("Model vs seasonal-naive baseline (held-out future)")
+    st.markdown(
+        "<h3 style='text-align:center'>Model vs seasonal-naive baseline (held-out future)</h3>",
+        unsafe_allow_html=True,
+    )
     if metrics:
-        comp = pd.DataFrame({"baseline": metrics["baseline"], "model": metrics["model"]})
-        st.dataframe(comp, use_container_width=True)
-        verdict = "Model beats baseline" if metrics.get("model_beats_baseline") else "Model does NOT beat baseline"
-        st.markdown(f"**{verdict}** (lower MAE / Poisson deviance is better; higher R² is better)")
+        def _nice(key: str) -> str:
+            if key == "hotspot_pr_auc":
+                return "Hotspot PR-AUC"
+            if key.endswith("hit_rate"):
+                k = key.replace("top_", "").replace("_hit_rate", "")
+                return f"Top-{k} hit-rate"
+            return key.replace("_", " ").title()
 
+        def _row(label, b, m, direction):
+            try:
+                better = (m < b) if direction == "lower" else (m > b)
+            except TypeError:
+                better = False
+            m_disp = f"<b>{m:.3f}</b>" if better else f"{m:.3f}"
+            cell = "padding:6px 30px;text-align:center"
+            return (f"<tr><td style='{cell}'>{label}</td>"
+                    f"<td style='{cell}'>{b:.3f}</td>"
+                    f"<td style='{cell}'>{m_disp}</td></tr>")
+
+        body = ""
+        for label, key, d in [("MAE", "mae", "lower"), ("RMSE", "rmse", "lower"),
+                              ("R²", "r2", "higher"), ("Poisson deviance", "poisson_deviance", "lower")]:
+            b, m = metrics["baseline"].get(key), metrics["model"].get(key)
+            if b is not None and m is not None:
+                body += _row(label, b, m, d)
         if "ranking" in metrics:
-            st.caption("Ranking metrics (better than MAE for sparse, imbalanced hotspot data)")
-            st.dataframe(
-                pd.DataFrame({"baseline": metrics["ranking"]["baseline"],
-                              "model": metrics["ranking"]["model"]}),
-                use_container_width=True,
-            )
-            st.caption("PR-AUC favours the model (calibration); Top-K is competitive for the seasonal mean at fine granularity.")
+            rb, rm = metrics["ranking"]["baseline"], metrics["ranking"]["model"]
+            for key in rb:
+                if rb.get(key) is not None and rm.get(key) is not None:
+                    body += _row(_nice(key), rb[key], rm[key], "higher")
 
+        head = "padding:8px 30px;text-align:center;border-bottom:2px solid #888"
+        st.markdown(
+            "<div style='display:flex;justify-content:center;margin:6px 0'>"
+            "<table style='border-collapse:collapse;font-size:16px'>"
+            f"<thead><tr><th style='{head}'>Metric</th>"
+            f"<th style='{head}'>Baseline</th>"
+            f"<th style='{head}'>ParkFlow-AI</th></tr></thead>"
+            f"<tbody>{body}</tbody></table></div>",
+            unsafe_allow_html=True,
+        )
+
+        verdict = "Model beats baseline" if metrics.get("model_beats_baseline") else "Model does NOT beat baseline"
+        st.markdown(
+            f"<div style='text-align:center;margin-top:6px'><b>{verdict}</b> &nbsp;·&nbsp; "
+            "bold = winner · lower MAE / Poisson deviance better · higher R² / PR-AUC better</div>",
+            unsafe_allow_html=True,
+        )
         if "data_date_range" in metrics:
             dr = metrics["data_date_range"]
-            st.caption(f"Training data: {dr.get('from','?')} → {dr.get('to','?')}")
+            st.markdown(
+                f"<div style='text-align:center;color:#888;font-size:13px;margin-top:4px'>"
+                f"Training data: {dr.get('from','?')} &rarr; {dr.get('to','?')}</div>",
+                unsafe_allow_html=True,
+            )
 
     # --- Actual vs Predicted diagnostic ---
     test_preds = load("test_predictions")
