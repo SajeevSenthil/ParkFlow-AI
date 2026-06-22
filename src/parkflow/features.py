@@ -316,3 +316,69 @@ def build_future_frame(
     fut = fut.merge(statics, on=S.ZONE, how="left")
     fut[feature_cols] = fut[feature_cols].fillna(0.0)
     return fut, next_bin
+
+
+# Column the recursive forecast and the intelligence layers agree on.
+PRED_COL = "predicted_violations"
+
+
+def build_multi_horizon_frames(
+    dense: pd.DataFrame,
+    feature_cols: list[str],
+    model,
+    cfg: Config,
+    horizon: int | None = None,
+    anchor: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Recursive multi-step forecast for the next ``horizon`` bins (default = 24 h).
+
+    At each step we build the one-step frame (reusing :func:`build_future_frame`),
+    predict, then append that prediction back into the working history so the next
+    step's lag / rolling features can see it. This stays strictly leakage-safe: every
+    feature is derived from observed history or the model's own earlier predictions —
+    never future ground truth.
+
+    Returns a long timeline with one row per ``(zone, horizon)``: columns
+    ``zone, bin_start, horizon, predicted_violations``.
+
+    ``anchor`` (set by ``--live``) only *relabels* the timeline so bin 1 starts at the
+    given wall-clock time; it never changes which historical values feed the lags, so
+    the honest "data ends here" forecast is preserved underneath the relabel.
+    """
+    horizon = horizon or cfg.temporal.forecast_horizon_bins
+    _, static_cols = _split_feature_cols(feature_cols)
+    bin_delta = pd.Timedelta(hours=cfg.temporal.bin_hours)
+
+    # Static per-zone values, carried onto every appended row so the recursion's
+    # groupby(...).first() always resolves to the original training-window statics.
+    statics = dense.groupby(S.ZONE)[static_cols].first()
+
+    work = dense[[S.ZONE, S.BIN_START, S.TARGET] + static_cols].copy()
+    last_real_bin = dense[S.BIN_START].max()
+
+    frames: list[pd.DataFrame] = []
+    for h in range(1, horizon + 1):
+        fut, _next_bin = build_future_frame(work, feature_cols, cfg)
+        preds = model.predict(fut)  # ViolationForecaster.predict clips at >= 0
+
+        step = fut[[S.ZONE, S.BIN_START]].copy()
+        step["horizon"] = h
+        step[PRED_COL] = preds
+        frames.append(step)
+
+        # The predictions become the new observed tail for the next recursion step.
+        appended = fut[[S.ZONE, S.BIN_START]].copy()
+        appended[S.TARGET] = preds
+        appended = appended.merge(statics.reset_index(), on=S.ZONE, how="left")
+        work = pd.concat([work, appended], ignore_index=True)
+
+    timeline = pd.concat(frames, ignore_index=True)
+
+    # --live relabel: slide the whole timeline so bin 1 lands on the anchor (now()).
+    if anchor is not None:
+        anchor_bin = pd.Timestamp(anchor).floor(f"{cfg.temporal.bin_hours}h")
+        offset = anchor_bin - (last_real_bin + bin_delta)
+        timeline[S.BIN_START] = timeline[S.BIN_START] + offset
+
+    log.info("Built %d-bin recursive forecast for %d zones", horizon, dense[S.ZONE].nunique())
+    return timeline
