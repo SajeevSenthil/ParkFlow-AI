@@ -1,10 +1,13 @@
 """End-to-end orchestration (PRD section 11).
 
 raw -> clean -> zones -> features(zero-fill) -> baseline+model -> evaluate
-    -> one-step forecast -> risk/proxy/priority/patrol -> artifacts.
+    -> one-step forecast + rolling 24h timeline
+    -> risk/congestion/economic/priority/patrol(greedy + OR-Tools route)/displacement
+    -> artifacts.
 
 Artifacts are written to ``artifacts/`` so the Streamlit app only ever *reads*
-precomputed outputs (no training at dashboard load).
+precomputed outputs (no training at dashboard load). The single exception is the
+operator deployment log (``enforcement_log.db``), which the dashboard writes to.
 """
 
 from __future__ import annotations
@@ -15,6 +18,8 @@ from pathlib import Path
 import pandas as pd
 
 from . import analytics as A
+from . import displacement as D
+from . import economics as E
 from . import features as F
 from . import intelligence as I
 from . import schema as S
@@ -37,7 +42,7 @@ class PipelineResult:
     artifacts_dir: Path
 
 
-def run(cfg: Config) -> PipelineResult:
+def run(cfg: Config, horizon: int | None = None, live: bool = False) -> PipelineResult:
     cfg.paths.ensure_dirs()
     art = cfg.paths.artifacts_dir
 
@@ -93,6 +98,7 @@ def run(cfg: Config) -> PipelineResult:
             "objective": cfg.model.objective,
             "hotspot_threshold": thr,
             "top_k": k,
+            "zones_per_team": cfg.patrol.zones_per_team,
         },
         "pipeline_run_at": pd.Timestamp.now().isoformat(),
         "data_date_range": {
@@ -109,12 +115,52 @@ def run(cfg: Config) -> PipelineResult:
     fut, next_bin = F.build_future_frame(dense, fcols, cfg)
     fut[I.PRED_COL] = model.predict(fut)
 
-    # 7. Intelligence layers ---------------------------------------------
+    # 6b. Rolling multi-horizon forecast (the next 24h, recursive) --------
+    horizon = horizon or cfg.temporal.forecast_horizon_bins
+    anchor = pd.Timestamp.now() if live else None
+    timeline = F.build_multi_horizon_frames(dense, fcols, model, cfg, horizon, anchor)
+    timeline = timeline.merge(zmeta, on=S.ZONE, how="left")
+    timeline["risk"] = I.risk_band(timeline[I.PRED_COL], cfg)
+    timeline = I.congestion_index(timeline, events, cfg)
+    timeline = E.economic_impact(timeline, cfg)
+
+    # 7. Intelligence layers (decision target = next window) --------------
     fut = fut.merge(zmeta, on=S.ZONE, how="left")
     fut["risk"] = I.risk_band(fut[I.PRED_COL], cfg)
     fut = I.congestion_index(fut, events, cfg)
+    fut = E.economic_impact(fut, cfg)
     ranked = I.enforcement_priority(fut, cfg)
-    patrol_plan = I.allocate_patrols(ranked, cfg)
+    patrol_plan = I.allocate_patrols(ranked, cfg)      # greedy: one stop per team
+    patrol_routes = I.route_patrols(ranked, cfg)       # OR-Tools CVRP: ordered routes
+
+    # 7b. Displacement: behavioural response + naive-vs-routed leakage -----
+    # The recommended (routed) layout drives the displacement artifact. The comparison
+    # is kept fair by pitting the routes against a NAIVE layout of the *same* number of
+    # stops (top-K purely by priority, no spatial reasoning) so any leakage difference
+    # reflects the spatial arrangement, not the headcount.
+    disp_zones, disp_summary = D.simulate_displacement(ranked, patrol_routes, cfg)
+    k_stops = cfg.patrol.num_teams * cfg.patrol.zones_per_team
+    naive_stops = I.greedy_spread_zones(ranked, k_stops, cfg.patrol.spatial_suppress_km)
+    layout_cmp = D.compare_layouts(ranked, naive_stops, patrol_routes, cfg)
+
+    # Per-zone 24h economic rollup for the Economic Impact tab.
+    econ_zone = (
+        timeline.groupby(S.ZONE)
+        .agg(
+            predicted_violations=(I.PRED_COL, "sum"),
+            vehicle_hours_delay=("vehicle_hours_delay", "sum"),
+            economic_cost_inr=("economic_cost_inr", "sum"),
+        )
+        .reset_index()
+        .merge(zmeta, on=S.ZONE, how="left")
+        .sort_values("economic_cost_inr", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    metrics["economic_summary"] = E.economic_summary(timeline)
+    metrics["displacement_summary"] = {**disp_summary, **layout_cmp}
+    metrics["live_mode"] = bool(live)
+    metrics["forecast_horizon_bins"] = int(horizon)
 
     # SHAP explanations for the forecast ("why this zone?") -- PRD trust layer.
     shap_global, shap_reasons = explain_forecast(model, fut)
@@ -141,6 +187,21 @@ def run(cfg: Config) -> PipelineResult:
                 art / "future_forecast.csv")
     write_table(patrol_plan, art / "patrol_plan.csv")
     write_table(current_hotspots, art / "current_hotspots.csv")
+
+    # Multi-horizon timeline + economic + routing + displacement artifacts.
+    timeline_cols = [
+        S.ZONE, S.ZONE_KIND, S.BIN_START, "horizon", S.ZONE_LAT, S.ZONE_LON,
+        I.PRED_COL, "risk", "congestion_index", "est_capacity_reduction_pct",
+        "economic_cost_inr", "vehicle_hours_delay",
+    ]
+    write_table(timeline[[c for c in timeline_cols if c in timeline]], art / "forecast_timeline.csv")
+    write_table(econ_zone, art / "economic_impact.csv")
+    write_table(patrol_routes, art / "patrol_routes.csv")
+    disp_cols = [
+        S.ZONE, S.ZONE_LAT, S.ZONE_LON, I.PRED_COL, "covered",
+        "displaced_out", "displaced_in", "residual_predicted",
+    ]
+    write_table(disp_zones[[c for c in disp_cols if c in disp_zones]], art / "displacement.csv")
     write_table(zmeta, art / "zone_metadata.csv")
     write_table(model.feature_importance(), art / "feature_importance.csv")
     model.save(art / "model.joblib")
