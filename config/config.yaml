@@ -25,6 +25,10 @@ temporal:
   # Lag/rolling windows are expressed in DAYS and converted to bins internally.
   lag_days: [1, 7]          # previous-day and previous-week same-bin lags
   rolling_days: [7, 30]     # rolling mean windows
+  # Rolling multi-horizon forecast: how many future bins to predict recursively.
+  # 8 bins x 3h = the next 24 hours. The command centre sees a full-day timeline,
+  # not just the single next window. Override at runtime with `parkflow run --horizon N`.
+  forecast_horizon_bins: 8
 
 model:
   test_fraction: 0.2        # last 20% of the time range is the held-out future test set
@@ -106,7 +110,33 @@ evaluation:
 
 patrol:
   num_teams: 3
-  spatial_suppress_km: 1.0   # don't assign two teams within this radius
+  spatial_suppress_km: 1.0   # greedy fallback: don't assign two teams within this radius
+  # Route-optimized deployment (OR-Tools CVRP). Each team drives an ordered route
+  # through several top-priority zones in one shift, minimizing total travel distance
+  # on a haversine matrix built from zone coordinates (NO external map data / API).
+  zones_per_team: 4          # shift capacity: max zones one team covers per route
+  route_candidate_pool: 30   # optimize routes over the top-N priority zones
+
+# Economic impact model (PRD 8.6) — translates predicted violations into commuter
+# productivity lost, in rupees. Grounded in PUBLISHED constants only (no external data):
+#   value_of_time   ~ Rs.120/hr   (NTDPC 2014 urban VoT, inflation-adjusted to 2024)
+#   avg_occupancy   ~ 1.4 persons/vehicle (RITES urban traffic studies)
+# Delay is tied to the congestion layer's estimated capacity reduction so the rupee
+# figure inherits the same PCU/HCM grounding rather than being a free-floating guess.
+economics:
+  value_of_time_inr_per_hour: 120.0      # economic value of one commuter-hour
+  avg_vehicle_occupancy: 1.4             # persons per vehicle
+  vehicles_blocked_per_violation: 25.0   # vehicles forced to slow/queue per violation event
+  max_delay_hours_per_vehicle: 0.10      # delay (hrs) at full capacity block (~6 min); scaled by est_capacity_reduction_pct
+
+# Spatial displacement model (PRD 8.7) — behavioural response of offenders to enforcement.
+# When a zone is patrolled, a share of would-be violations relocates to the nearest
+# UNcovered zone instead of disappearing. Lets us show that route-optimized coverage
+# leaks fewer violations into blindspots than naive greedy allocation.
+displacement:
+  displaced_fraction: 0.30      # share of a covered zone's violations that relocate
+  displacement_radius_km: 0.5   # offenders move at most this far to re-park
+  coverage_radius_km: 1.0       # a zone is "covered" if a patrol stop is within this radius
 
 # Violation types kept as genuine parking violations (PRD 4.3).
 # violation_type in the raw data is a JSON array per record; a record is kept if
