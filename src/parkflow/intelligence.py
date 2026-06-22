@@ -14,6 +14,16 @@ from . import schema as S
 from .config import Config
 from .logging_utils import get_logger
 
+# OR-Tools is an OPTIONAL dependency: route optimization uses it when present, and the
+# pipeline gracefully falls back to greedy spatial-spread allocation when it is not, so
+# `parkflow run` never hard-fails on a box without it.
+try:  # pragma: no cover - import guard
+    from ortools.constraint_solver import pywrapcp, routing_enums_pb2
+
+    _HAS_ORTOOLS = True
+except ImportError:  # pragma: no cover - exercised only when ortools is absent
+    _HAS_ORTOOLS = False
+
 log = get_logger("intelligence")
 
 PRED_COL = "predicted_violations"
@@ -139,6 +149,25 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return float(2 * r * np.arcsin(np.sqrt(a)))
 
 
+def greedy_spread_zones(ranked_zones: pd.DataFrame, n: int, suppress_km: float) -> pd.DataFrame:
+    """Top-``n`` priority zones with haversine spatial suppression (≥ ``suppress_km``
+    apart). This is the hand-dispatcher heuristic — spread teams out — and is reused as
+    the *naive* baseline the displacement comparison pits the routed layout against.
+    """
+    picked: list[pd.Series] = []
+    for _, row in ranked_zones.iterrows():
+        if len(picked) >= n:
+            break
+        too_close = any(
+            _haversine_km(row[S.ZONE_LAT], row[S.ZONE_LON], p[S.ZONE_LAT], p[S.ZONE_LON])
+            < suppress_km
+            for p in picked
+        )
+        if not too_close:
+            picked.append(row)
+    return pd.DataFrame(picked).reset_index(drop=True)
+
+
 def allocate_patrols(ranked_zones: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     """Assign N teams to the highest-priority zones, skipping any zone within
     ``spatial_suppress_km`` of an already-assigned one so teams spread out.
@@ -167,4 +196,131 @@ def allocate_patrols(ranked_zones: pd.DataFrame, cfg: Config) -> pd.DataFrame:
         )
     result = pd.DataFrame(assigned)
     log.info("Allocated %d patrol teams (target %d)", len(result), cfg.patrol.num_teams)
+    return result
+
+
+# --- 8.5b Route-optimized patrol allocation (OR-Tools CVRP) ------------------
+def _distance_matrix_m(lats: list[float], lons: list[float]) -> list[list[int]]:
+    """Symmetric haversine distance matrix in integer metres (OR-Tools wants ints).
+
+    Built purely from zone coordinates already in the data — NO external road network
+    or routing API, so the project's no-external-data compliance is preserved.
+    """
+    n = len(lats)
+    mat = [[0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = int(round(_haversine_km(lats[i], lons[i], lats[j], lons[j]) * 1000))
+            mat[i][j] = mat[j][i] = d
+    return mat
+
+
+def route_patrols(ranked_zones: pd.DataFrame, cfg: Config) -> pd.DataFrame:
+    """Route-optimized patrol deployment via an OR-Tools Capacitated VRP.
+
+    Each of ``num_teams`` teams drives an *ordered* route through up to
+    ``zones_per_team`` of the top-priority zones, minimizing total travel distance on a
+    haversine matrix. With more candidate zones than total team capacity, node
+    *disjunctions* let the solver skip zones — penalised by priority, so it preferentially
+    visits the highest-priority ones. A virtual depot (the candidate centroid) models a
+    shared command-centre start.
+
+    Returns ordered stops: ``team, stop_order, zone, zone_lat, zone_lon, priority_score,
+    predicted_violations, risk, route_method``. Falls back to the greedy spatial-spread
+    plan (one stop per team) when OR-Tools is unavailable.
+    """
+    if ranked_zones.empty:
+        return pd.DataFrame()
+
+    if not _HAS_ORTOOLS:
+        log.warning("OR-Tools not installed -> greedy fallback for patrol routing")
+        plan = allocate_patrols(ranked_zones, cfg)
+        plan["stop_order"] = 1
+        plan["route_method"] = "greedy_fallback"
+        return plan
+
+    pool = (
+        ranked_zones.dropna(subset=[S.ZONE_LAT, S.ZONE_LON])
+        .head(cfg.patrol.route_candidate_pool)
+        .reset_index(drop=True)
+    )
+    n = len(pool)
+    if n == 0:
+        return pd.DataFrame()
+
+    # Node 0 = virtual depot (centroid of the candidate zones); nodes 1..n = zones.
+    lats = [float(pool[S.ZONE_LAT].mean())] + pool[S.ZONE_LAT].astype(float).tolist()
+    lons = [float(pool[S.ZONE_LON].mean())] + pool[S.ZONE_LON].astype(float).tolist()
+    dist = _distance_matrix_m(lats, lons)
+
+    n_teams = cfg.patrol.num_teams
+    cap = cfg.patrol.zones_per_team
+    manager = pywrapcp.RoutingIndexManager(n + 1, n_teams, 0)
+    routing = pywrapcp.RoutingModel(manager)
+
+    def _transit(i, j):
+        return dist[manager.IndexToNode(i)][manager.IndexToNode(j)]
+
+    transit_idx = routing.RegisterTransitCallback(_transit)
+    routing.SetArcCostEvaluatorOfAllVehicles(transit_idx)
+
+    # Capacity dimension: each real zone has demand 1; teams carry at most `cap` zones.
+    def _demand(i):
+        return 0 if manager.IndexToNode(i) == 0 else 1
+
+    demand_idx = routing.RegisterUnaryTransitCallback(_demand)
+    routing.AddDimensionWithVehicleCapacity(demand_idx, 0, [cap] * n_teams, True, "Cap")
+
+    # Disjunctions: skipping a zone costs a priority-scaled penalty, so the solver fills
+    # team capacity with the highest-priority zones first. Penalty dominates any arc cost.
+    for node in range(1, n + 1):
+        priority = float(pool.loc[node - 1, "priority_score"])
+        penalty = int(priority * 100_000) + 1
+        routing.AddDisjunction([manager.NodeToIndex(node)], penalty)
+
+    params = pywrapcp.DefaultRoutingSearchParameters()
+    params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    params.local_search_metaheuristic = (
+        routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+    )
+    params.time_limit.FromSeconds(5)
+
+    solution = routing.SolveWithParameters(params)
+    if solution is None:
+        log.warning("OR-Tools found no solution -> greedy fallback")
+        plan = allocate_patrols(ranked_zones, cfg)
+        plan["stop_order"] = 1
+        plan["route_method"] = "greedy_fallback"
+        return plan
+
+    rows: list[dict] = []
+    for v in range(n_teams):
+        team = f"Team {chr(ord('A') + v)}"
+        idx = routing.Start(v)
+        order = 1
+        while not routing.IsEnd(idx):
+            node = manager.IndexToNode(idx)
+            if node != 0:  # skip the virtual depot
+                z = pool.loc[node - 1]
+                rows.append(
+                    {
+                        "team": team,
+                        "stop_order": order,
+                        S.ZONE: z[S.ZONE],
+                        "zone_lat": z[S.ZONE_LAT],
+                        "zone_lon": z[S.ZONE_LON],
+                        "priority_score": z["priority_score"],
+                        PRED_COL: round(float(z[PRED_COL]), 1),
+                        "risk": z.get("risk", ""),
+                        "route_method": "ortools_cvrp",
+                    }
+                )
+                order += 1
+            idx = solution.Value(routing.NextVar(idx))
+
+    result = pd.DataFrame(rows)
+    log.info(
+        "Routed %d stops across %d teams (OR-Tools CVRP, cap %d/team)",
+        len(result), result["team"].nunique() if len(result) else 0, cap,
+    )
     return result
