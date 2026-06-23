@@ -77,7 +77,7 @@ congestion_index (0–100)  = est_% / max_cap × 100
 | Output | Computation | File → artifact | Dashboard |
 |---|---|---|---|
 | **24h forecast timeline** | recursive multi-step: predict bin → feed back as lag → repeat for `forecast_horizon_bins` (leakage-safe); `--live` relabels the anchor to now | `build_multi_horizon_frames()` → `forecast_timeline.csv` | Prediction Center → "Next 24h timeline" |
-| **Economic cost (₹)** | `pred × vehicles_blocked × (max_delay × cap_red%/100) × occupancy × value_of_time`; tied to the congestion layer; published constants only | `economics.economic_impact()` → `economic_impact.csv` + `economic_summary` in `metrics.json` | Economic Impact tab + KPI |
+| **Economic cost (₹)** | `pred × vehicles_blocked × (max_delay × cap_red%/100) × occupancy × value_of_time`; tied to the congestion layer. Value of time ≈ ₹164/commuter-hour derived from the Bengaluru ISEC study WP-554 (Vijayalakshmi & Krishna Raj, 2023): ₹11,45,568 ÷ 6,998 h. Per-commuter model (occupancy = 1.0); `vehicles_blocked`/`max_delay` are tunable assumptions | `economics.economic_impact()` → `economic_impact.csv` + `economic_summary` in `metrics.json` | Economic Impact tab + KPI |
 | **Displacement** | covered zone sheds `displaced_fraction` to nearest uncovered zone within radius (else suppressed); naive-spread vs routed leakage | `displacement.simulate_displacement()` / `compare_layouts()` → `displacement.csv` + `displacement_summary` | Enforcement → displacement map + metrics |
 | **Operator actions** | confirm / override / complete deployments persisted to SQLite (stdlib) | `operations.py` → `enforcement_log.db` | Enforcement → Operator console |
 

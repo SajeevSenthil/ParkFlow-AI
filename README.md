@@ -140,8 +140,12 @@ $$\text{CongestionIndex} = 100 \cdot \frac{\hat{\rho}}{C_{\max}}$$
 $$P = 100\left(0.6\,\tilde{y} + 0.3\,\tilde{h} + 0.1\,j\right)$$
 
 **Economic impact** (rupee cost of commuter delay; $n_v$ = vehicles blocked per violation;
-$t_{\max}$ = delay at full block; $o$ = occupancy; $w$ = value of time). Delay is tied to the same
-estimated capacity reduction $\hat{\rho}$, so the money figure inherits the PCU / Indo-HCM grounding:
+$t_{\max}$ = delay at full block; $o$ = occupancy; $w$ = value of time). The value of time
+$w \approx$ ₹164/commuter-hour is **derived from the only economic source used**, the Bengaluru
+ISEC study WP-554 (2023): ₹11,45,568 ÷ 6,998 hours lost ≈ ₹163.7/hr. The model is per-commuter
+(as in the paper), so $o=1.0$; $n_v$ and $t_{\max}$ are the project's own tunable assumptions.
+Delay is tied to the same estimated capacity reduction $\hat{\rho}$, so the money figure inherits
+the PCU / Indo-HCM grounding:
 
 $$\text{Cost}_{\text{INR}} = \underbrace{\hat{y}\,n_v}_{\text{vehicles delayed}} \cdot
   \underbrace{t_{\max}\tfrac{\hat{\rho}}{100}}_{\text{delay hrs/veh}} \cdot\; o \cdot w$$
@@ -173,7 +177,7 @@ $$\text{out}(z) = \delta\,\hat{y}_z, \qquad
 | **Repeat-offender intelligence** | Separates willful blockers (towing) from infrastructure issues (signage/space) |
 | **Route-optimized patrols** | OR-Tools VRP plans each team's ordered route over a haversine matrix — not a greedy 1 km rule (greedy fallback if OR-Tools absent) |
 | **Rolling 24h forecast** | Recursive multi-horizon (8×3h bins), not a single next-window snapshot — the command centre sees the whole day ahead |
-| **Economic framing** | Converts predictions into ₹ of commuter productivity lost, grounded in published constants — the business case judges ask for |
+| **Economic framing** | Converts predictions into ₹ of commuter productivity lost (≈ ₹164/commuter-hour, derived from the Bengaluru ISEC study WP-554, 2023) — the business case judges ask for |
 | **Displacement-aware** | Simulates offenders re-parking nearby when enforced — quantifies blindspot leakage (novel systems-thinking layer) |
 | **Operator workflow** | Confirm / override / complete deployments persisted to SQLite — an operations tool, not just a report |
 | **Honest evaluation** | Beats a real baseline on a held-out *future* window — no leakage, no inflated numbers |
@@ -228,7 +232,7 @@ Held-out future test (~169k zone-windows; trained on the earliest 80%):
 
 | Output | Value | Meaning |
 |---|---|---|
-| Commuter cost at risk | **≈ ₹1.18 lakh** (≈ 696 vehicle-hours) | Productivity lost to predicted violations, published constants only |
+| Commuter cost at risk | **≈ ₹1.16 lakh** (≈ 696 commuter-hours) | Productivity lost to predicted violations, valued at ≈ ₹164/commuter-hour (ISEC WP-554, 2023) |
 | Route-optimized patrols | **12 stops / 3 teams** via OR-Tools CVRP | Ordered routes minimizing travel distance vs a greedy 1 km rule |
 | Displacement leakage | **1.2 vs 1.8** violations (**−33%**) | Route-optimized layout leaks fewer violations into blindspots than a naive same-size spatial spread |
 
