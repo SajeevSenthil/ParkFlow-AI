@@ -2,7 +2,7 @@
 # All paths are relative to the project root unless absolute.
 
 paths:
-  raw_data: "dataset/jan to may police violation_anonymized791b166.csv"   # real BTP export
+  raw_data: "dataset/jan to may police violation_anonymized791b166.csv.gz"   # real BTP export (gzipped; pandas reads it directly)
   artifacts_dir: artifacts
 
 preprocessing:
