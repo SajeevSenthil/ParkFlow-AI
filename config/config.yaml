@@ -118,16 +118,37 @@ patrol:
   route_candidate_pool: 30   # optimize routes over the top-N priority zones
 
 # Economic impact model (PRD 8.6) — translates predicted violations into commuter
-# productivity lost, in rupees. Grounded in PUBLISHED constants only (no external data):
-#   value_of_time   ~ Rs.120/hr   (NTDPC 2014 urban VoT, inflation-adjusted to 2024)
-#   avg_occupancy   ~ 1.4 persons/vehicle (RITES urban traffic studies)
-# Delay is tied to the congestion layer's estimated capacity reduction so the rupee
-# figure inherits the same PCU/HCM grounding rather than being a free-floating guess.
+# productivity lost, in rupees. The ONLY economic source is the Bengaluru-specific study:
+#   Vijayalakshmi S & Krishna Raj (2023), "Estimation of Productivity Loss Due to Traffic
+#   Congestion: Evidence from Bengaluru City", ISEC Working Paper 554.
+#   https://www.isec.ac.in/wp-content/uploads/2023/09/WP-554-Vijayalakshmi-and-Krishna-Raj-Final.pdf
+# That study treats Value of Time as the commuter's hourly wage applied to travel-time delay
+# (a per-commuter person-hours model — it does NOT use vehicle occupancy).
+#
+# value_of_time_inr_per_hour: DERIVED FROM THE PAPER. Its Table 2 reports Rs.11,45,568 of
+#   productive-hour cost across 6,998 hours lost -> Rs.1,145,568 / 6,998 = Rs.163.70/hr, the
+#   paper's own effective hourly wage (2018-19). Cross-check: sample average income Rs.34,952/mo
+#   (paper, 2018-19) / (8h x 26 working days = 208 h/mo) = Rs.168/hr — consistent. We use the
+#   table-derived Rs.164/hr (2018-19 rupees) as the single defensible figure. NOTE: this is a
+#   2018-19 wage; the paper records per-capita income growing ~14%/yr, so the present-day value
+#   of time is higher — kept at the paper's stated base year for honesty rather than extrapolated.
+# avg_vehicle_occupancy: TUNABLE MODELLING ASSUMPTION (not from the paper). The ISEC study is a
+#   per-commuter person-hours model with no occupancy term. We carry a 1.0 multiplier so the cost
+#   stays per-commuter, faithful to the paper. (Raise it only to deliberately model multi-occupant
+#   vehicles — that would be our assumption, NOT the paper's.)
+# vehicles_blocked_per_violation, max_delay_hours_per_vehicle: TUNABLE MODELLING ASSUMPTIONS —
+#   the project's own bridge from a predicted violation count to commuter-hours of delay. They are
+#   NOT from the paper; the paper measures realised late-arrival hours from a primary survey.
+# Delay is tied to the congestion layer's estimated capacity reduction so the rupee figure
+# inherits the same PCU/HCM grounding rather than being a free-floating guess.
+#
+# Real-world scale anchor (ISEC WP-554): city-wide ~7.07 lakh productive hours lost in 2018
+# costing ~Rs.11.7 billion (~0.027% of Bengaluru District income, 2017-18).
 economics:
-  value_of_time_inr_per_hour: 120.0      # economic value of one commuter-hour
-  avg_vehicle_occupancy: 1.4             # persons per vehicle
-  vehicles_blocked_per_violation: 25.0   # vehicles forced to slow/queue per violation event
-  max_delay_hours_per_vehicle: 0.10      # delay (hrs) at full capacity block (~6 min); scaled by est_capacity_reduction_pct
+  value_of_time_inr_per_hour: 164.0      # paper's effective hourly wage: Rs.11,45,568 / 6,998 h (ISEC WP-554, Table 2, 2018-19)
+  avg_vehicle_occupancy: 1.0             # MODELLING ASSUMPTION: 1.0 keeps cost per-commuter (paper has no occupancy term)
+  vehicles_blocked_per_violation: 25.0   # MODELLING ASSUMPTION: commuters forced to slow/queue per violation event
+  max_delay_hours_per_vehicle: 0.10      # MODELLING ASSUMPTION: delay (hrs) at full capacity block (~6 min); scaled by est_capacity_reduction_pct
 
 # Spatial displacement model (PRD 8.7) — behavioural response of offenders to enforcement.
 # When a zone is patrolled, a share of would-be violations relocates to the nearest

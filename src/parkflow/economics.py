@@ -5,10 +5,28 @@ A hackathon judge does not just want "better predictions" — they want the busi
 case. This module converts the forecast into a money figure so the dashboard can say
 "preventing the next 24 h of high-risk zones saves Rs.X lakh in commuter time."
 
-Grounding (NO external data — only published constants + the model's own outputs):
-  * value of time   ~ Rs.120 / commuter-hour  (NTDPC 2014 urban VoT, inflated to 2024)
-  * occupancy       ~ 1.4 persons / vehicle    (RITES urban traffic studies)
-The *delay* per vehicle is tied to the congestion layer's estimated capacity reduction
+Grounding (NO external data — only published constants + the model's own outputs).
+The ONLY economic source is the Bengaluru-specific study:
+  Vijayalakshmi S & Krishna Raj (2023), "Estimation of Productivity Loss Due to Traffic
+  Congestion: Evidence from Bengaluru City", ISEC Working Paper 554.
+  https://www.isec.ac.in/wp-content/uploads/2023/09/WP-554-Vijayalakshmi-and-Krishna-Raj-Final.pdf
+
+  * value of time ~ Rs.164 / commuter-hour (2018-19). DERIVED from the paper: its Table 2
+    reports Rs.11,45,568 of productive-hour cost over 6,998 hours lost -> Rs.163.70/hr, the
+    study's own effective hourly wage. Cross-checked against the sample average income of
+    Rs.34,952/month / (8h x 26 working days) ~ Rs.168/hr. The paper applies the commuter's
+    hourly wage to travel-time delay (Value of Time = hourly wage).
+  * occupancy ~ 1.0 — a TUNABLE MODELLING ASSUMPTION, not from the paper. The ISEC study is a
+    per-commuter person-hours model with no vehicle-occupancy term, so 1.0 keeps the cost
+    strictly per-commuter and faithful to the source.
+  * ``vehicles_blocked_per_violation`` and ``max_delay_hours_per_vehicle`` are likewise the
+    project's own TUNABLE MODELLING ASSUMPTIONS — the bridge from a predicted violation count to
+    commuter-hours of delay. The paper instead measures realised late-arrival hours from a survey.
+
+Real-world scale anchor (ISEC WP-554): city-wide ~7.07 lakh productive hours lost in 2018,
+costing ~Rs.11.7 billion (~0.027% of Bengaluru District income, 2017-18).
+
+The *delay* per commuter is tied to the congestion layer's estimated capacity reduction
 (``est_capacity_reduction_pct``), so the rupee number inherits the same PCU / Indo-HCM
 grounding as the Parking Congestion Impact Index rather than being a free-floating guess.
 """

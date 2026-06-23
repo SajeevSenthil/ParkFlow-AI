@@ -276,9 +276,14 @@ lag for the next step — strictly leakage-safe. `--live` *relabels* the timelin
 altering which historical data feeds the model (preserves the honest "data ends here" anchor).
 
 ## 2. Economic impact (₹)
-Predicted violations → estimated capacity loss → vehicle-hours of delay → rupees, using **published
-constants only** (value of time ≈ ₹120/commuter-hour NTDPC-2014 inflated; occupancy ≈ 1.4 RITES).
-Delay is tied to the congestion layer so the money number inherits the PCU / Indo-HCM grounding.
+Predicted violations → estimated capacity loss → commuter-hours of delay → rupees, valued with the
+**single economic source**: Vijayalakshmi S & Krishna Raj (2023), *Estimation of Productivity Loss
+Due to Traffic Congestion: Evidence from Bengaluru City*, ISEC Working Paper 554. Value of time ≈
+**₹164/commuter-hour (2018-19)**, derived from that paper (Table 2: ₹11,45,568 ÷ 6,998 hours lost ≈
+₹163.7/hr; cross-checked vs ₹34,952/mo ÷ 208 h ≈ ₹168/hr). It is a **per-commuter** model so occupancy
+= 1.0; `vehicles_blocked_per_violation` and `max_delay_hours_per_vehicle` stay **tunable modelling
+assumptions**. Real-world scale anchor (same paper): ≈ 7.07 lakh hours / ≈ ₹11.7 billion city-wide in
+2018. Delay is tied to the congestion layer so the money number inherits the PCU / Indo-HCM grounding.
 
 ## 3. Route-optimized patrols (OR-Tools CVRP)
 Each team drives an ordered route through up to `zones_per_team` top-priority zones, minimizing total

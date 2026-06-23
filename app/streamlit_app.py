@@ -570,12 +570,29 @@ with tabs[4]:
         e2.metric("Vehicle-hours of delay (next 24h)", f"{esum.get('total_vehicle_hours', 0):,.0f}")
         e3.metric("Worst zone", esum.get("top_zone", "—"))
         st.caption(
-            "Predicted violations → estimated road-capacity loss → vehicle-hours of delay → rupees, "
-            "using published constants only (value of time ≈ ₹120/commuter-hour, NTDPC 2014 inflated; "
-            "occupancy ≈ 1.4, RITES). No external data — the delay is tied to the same PCU / Indo-HCM "
-            "congestion model as the Impact Index. Pre-empting the worst zones converts directly into "
-            "the rupee figure above of avoidable commuter productivity loss."
+            "Predicted violations → estimated road-capacity loss → commuter-hours of delay → rupees, "
+            "valued at ≈ ₹164/commuter-hour. No external data — the delay is tied to the same "
+            "PCU / Indo-HCM congestion model as the Impact Index. Pre-empting the worst zones converts "
+            "directly into the rupee figure above of avoidable commuter productivity loss (an estimate)."
         )
+        with st.expander("Methodology & source"):
+            st.markdown(
+                "**Value of time = commuter's hourly wage** applied to travel-time delay, taken from "
+                "the only economic source used here:\n\n"
+                "> Vijayalakshmi S & Krishna Raj (2023). *Estimation of Productivity Loss Due to Traffic "
+                "Congestion: Evidence from Bengaluru City.* Institute for Social and Economic Change "
+                "(ISEC), Working Paper 554. "
+                "[PDF](https://www.isec.ac.in/wp-content/uploads/2023/09/WP-554-Vijayalakshmi-and-Krishna-Raj-Final.pdf)\n\n"
+                "**₹164/commuter-hour (2018-19)** is derived from that paper: its Table 2 reports "
+                "₹11,45,568 of productive-hour cost across 6,998 hours lost (₹11,45,568 / 6,998 ≈ ₹163.7/hr), "
+                "cross-checked against the sample average income of ₹34,952/month ÷ (8h × 26 days) ≈ ₹168/hr. "
+                "The paper is a **per-commuter** person-hours model, so occupancy is held at 1.0; the "
+                "`vehicles_blocked_per_violation` and `max_delay_hours_per_vehicle` factors are the "
+                "project's own **tunable modelling assumptions**, not figures from the paper. "
+                "All rupee figures here are **estimates**.\n\n"
+                "**Real-world scale anchor (same paper):** city-wide ≈ **7.07 lakh** productive hours lost "
+                "in 2018 costing ≈ **₹11.7 billion** (~0.027% of Bengaluru District income, 2017-18)."
+            )
     if len(economic):
         ec = economic.sort_values("economic_cost_inr", ascending=False)
         col_bar, col_map = st.columns([2, 3])
