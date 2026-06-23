@@ -283,7 +283,10 @@ def route_patrols(ranked_zones: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     params.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     )
-    params.time_limit.FromSeconds(5)
+    # Bound the local search by a fixed solution count, NOT wall-clock time. A time
+    # limit makes the result depend on machine speed (non-reproducible run-to-run);
+    # a solution limit keeps the search deterministic so artifacts are byte-stable.
+    params.solution_limit = 200
 
     solution = routing.SolveWithParameters(params)
     if solution is None:
