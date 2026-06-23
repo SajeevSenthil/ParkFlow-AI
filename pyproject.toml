@@ -20,6 +20,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dashboard = ["streamlit>=1.33", "plotly>=5.20", "pydeck>=0.9"]
+# Route-optimized patrol allocation. Optional: the pipeline falls back to greedy
+# spatial-spread allocation when OR-Tools is not installed.
+routing = ["ortools>=9.8"]
 dev = ["pytest>=8.0", "ruff>=0.4"]
 
 [project.scripts]

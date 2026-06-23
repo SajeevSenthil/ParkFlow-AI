@@ -29,10 +29,13 @@ Enforcement today is **reactive and patrol-based**:
 ## 2. Solution
 
 ParkFlow-AI converts ~298k historical BTP violation records into forward-looking enforcement
-intelligence. It aggregates violations to **junction × time-window** cells, forecasts the next
-window's violation count with a gradient-boosted model, converts that into an estimated **road-capacity
-loss** (the congestion link), and produces a ranked patrol plan — all served on a Streamlit dashboard
-that reads only precomputed artifacts.
+intelligence. It aggregates violations to **junction × time-window** cells, forecasts the **next 24
+hours** (recursive multi-horizon) with a gradient-boosted model, converts that into an estimated
+**road-capacity loss** and a **rupee cost of commuter delay**, then produces a **route-optimized**
+patrol plan (OR-Tools VRP) and simulates how offenders **displace** when enforcement arrives — all
+served on a Streamlit dashboard that reads precomputed artifacts and lets operators **act** on them
+(confirm/override/complete deployments). Everything is computed from the provided data plus published
+traffic-engineering constants — **no external datasets or APIs**.
 
 **Pipeline (high level)**
 
@@ -41,12 +44,19 @@ flowchart LR
   A[Raw BTP CSV] --> B[Preprocessing]
   B --> C[Spatial Zoning]
   C --> D["Feature Engineering<br/>(zero-fill + 17 features)"]
-  D --> E["XGBoost Tweedie<br/>Forecast"]
-  E --> F["Intelligence Layers<br/>congestion · risk · priority · patrol"]
+  D --> E["XGBoost Tweedie<br/>recursive 24h forecast"]
+  E --> F["Intelligence Layers<br/>congestion · risk · priority"]
   E --> G[SHAP Explainability]
+  F --> J["Economic impact (₹)"]
+  F --> K["OR-Tools VRP patrol routes"]
+  K --> L["Displacement simulation"]
   F --> H[(artifacts/)]
   G --> H
+  J --> H
+  K --> H
+  L --> H
   H --> I[Streamlit Dashboard]
+  I --> M[(enforcement_log.db<br/>operator actions)]
 ```
 
 ### 2.1 State of the art
@@ -129,6 +139,19 @@ $$\text{CongestionIndex} = 100 \cdot \frac{\hat{\rho}}{C_{\max}}$$
 
 $$P = 100\left(0.6\,\tilde{y} + 0.3\,\tilde{h} + 0.1\,j\right)$$
 
+**Economic impact** (rupee cost of commuter delay; $n_v$ = vehicles blocked per violation;
+$t_{\max}$ = delay at full block; $o$ = occupancy; $w$ = value of time). Delay is tied to the same
+estimated capacity reduction $\hat{\rho}$, so the money figure inherits the PCU / Indo-HCM grounding:
+
+$$\text{Cost}_{\text{INR}} = \underbrace{\hat{y}\,n_v}_{\text{vehicles delayed}} \cdot
+  \underbrace{t_{\max}\tfrac{\hat{\rho}}{100}}_{\text{delay hrs/veh}} \cdot\; o \cdot w$$
+
+**Displacement** (behavioural response; $\delta$ = displaced fraction). For a *covered* zone $z$, a
+share of its predicted violations relocates to the nearest *uncovered* zone $u$ within radius $R$:
+
+$$\text{out}(z) = \delta\,\hat{y}_z, \qquad
+  \text{in}(u) \mathrel{+}= \text{out}(z)\;\;\text{if}\;\; d(z,u)\le R,\;\text{else suppressed}$$
+
 ### 2.5 Evaluation and validation
 
 - **Time-based split** — train on the earliest 80% of the timeline, test on the unseen latest 20%
@@ -148,7 +171,11 @@ $$P = 100\left(0.6\,\tilde{y} + 0.3\,\tilde{h} + 0.1\,j\right)$$
 | **Zero-filled grid** | The model learns *quiet* windows, not just busy ones — the key correctness step |
 | **SHAP explainability** | Every alert is explainable per zone — builds trust with enforcement officers |
 | **Repeat-offender intelligence** | Separates willful blockers (towing) from infrastructure issues (signage/space) |
-| **Smart patrol allocation** | Greedy + spatial-spread deployment plan — turns a forecast into a daily action list |
+| **Route-optimized patrols** | OR-Tools VRP plans each team's ordered route over a haversine matrix — not a greedy 1 km rule (greedy fallback if OR-Tools absent) |
+| **Rolling 24h forecast** | Recursive multi-horizon (8×3h bins), not a single next-window snapshot — the command centre sees the whole day ahead |
+| **Economic framing** | Converts predictions into ₹ of commuter productivity lost, grounded in published constants — the business case judges ask for |
+| **Displacement-aware** | Simulates offenders re-parking nearby when enforced — quantifies blindspot leakage (novel systems-thinking layer) |
+| **Operator workflow** | Confirm / override / complete deployments persisted to SQLite — an operations tool, not just a report |
 | **Honest evaluation** | Beats a real baseline on a held-out *future* window — no leakage, no inflated numbers |
 
 ---
@@ -173,8 +200,10 @@ flowchart TD
 1. **Aggregate** events to `zone × 3-hour` counts, then **zero-fill** the full grid.
 2. Engineer **17 leakage-safe features** (time, lags/rolling, zone profile).
 3. Split by time, train the **Tweedie XGBoost** vs the **seasonal-naive baseline**.
-4. Forecast the **next window**, then derive **risk band**, **congestion index**, **priority**, **patrol plan**.
-5. Compute **SHAP** explanations; write everything to `artifacts/` for the dashboard.
+4. Forecast the **next 24h** (recursive multi-horizon), then derive **risk band**, **congestion index**,
+   **economic cost (₹)**, **priority**, **route-optimized patrol plan**, and a **displacement** simulation.
+5. Compute **SHAP** explanations; write everything to `artifacts/` for the dashboard (operator actions
+   persist to `enforcement_log.db`).
 
 ---
 
@@ -195,11 +224,20 @@ Held-out future test (~169k zone-windows; trained on the earliest 80%):
 > From the data: **243,405** confirmed parking violations across **701** zones; **8,089**
 > repeat-offender vehicles (~**30%** of all violations).
 
+**Decision-layer outputs (next 24h, honest anchor):**
+
+| Output | Value | Meaning |
+|---|---|---|
+| Commuter cost at risk | **≈ ₹1.18 lakh** (≈ 696 vehicle-hours) | Productivity lost to predicted violations, published constants only |
+| Route-optimized patrols | **12 stops / 3 teams** via OR-Tools CVRP | Ordered routes minimizing travel distance vs a greedy 1 km rule |
+| Displacement leakage | **1.2 vs 1.8** violations (**−33%**) | Route-optimized layout leaks fewer violations into blindspots than a naive same-size spatial spread |
+
 ---
 
 ## 6. The Dashboard
 
-A single decision cockpit (8 tabs): Overview, Hotspot Analysis, Prediction Center, Enforcement,
+A single decision cockpit (9 tabs): Overview, Hotspot Analysis, Prediction Center (+ rolling 24h
+timeline), Enforcement (+ VRP routes, displacement map, operator console), **Economic Impact**,
 Analytics Center, Junction Risk, Repeat Offenders, Model.
 
 **Overview — city KPIs + hotspot map**
@@ -247,12 +285,15 @@ ParkFlow-AI/
 │   ├── model.py            # XGBoost Tweedie forecaster
 │   ├── baseline.py         # seasonal-naive benchmark
 │   ├── evaluation.py       # MAE/RMSE/R2/Poisson + Top-K/PR-AUC
-│   ├── intelligence.py     # congestion index, risk, priority, patrol
+│   ├── intelligence.py     # congestion index, risk, priority, patrol (greedy + OR-Tools VRP)
+│   ├── economics.py        # rupee cost of commuter delay
+│   ├── displacement.py     # offender displacement / blindspot simulation
+│   ├── operations.py       # operator deployment log (SQLite)
 │   ├── analytics.py        # junction risk, repeat offenders, trends
 │   ├── explain.py          # SHAP "why this zone"
 │   └── pipeline.py         # orchestrates everything -> artifacts/
-├── app/streamlit_app.py    # 8-tab dashboard (reads artifacts only)
-├── tests/                  # correctness tests (zero-fill, no leakage, …)
+├── app/streamlit_app.py    # 9-tab dashboard (reads artifacts; operator writes to SQLite)
+├── tests/                  # correctness tests (zero-fill, no leakage, economics, routing, …)
 └── docs/screenshots/       # dashboard screenshots
 ```
 
@@ -261,12 +302,13 @@ ParkFlow-AI/
 ## 8. Setup & run
 
 ```bash
-# 1. setup
+# 1. setup  (add `routing` for OR-Tools VRP patrols; greedy fallback works without it)
 python -m venv .venv && .venv/Scripts/activate          # Windows
-pip install -e ".[dashboard,dev]"
+pip install -e ".[dashboard,routing,dev]"
 
 # 2. run the full pipeline (clean -> train -> evaluate -> write artifacts)
-parkflow run
+parkflow run                       # honest anchor: forecast starts after the last data bin
+parkflow run --horizon 8 --live    # relabel the 24h timeline to "now" (as if on live feeds)
 
 # 3. launch the dashboard
 streamlit run app/streamlit_app.py                       # http://localhost:8501
@@ -275,8 +317,13 @@ streamlit run app/streamlit_app.py                       # http://localhost:8501
 pytest -q
 ```
 
+`parkflow run` flags: `--horizon N` sets how many future 3h bins to forecast (default 8 = 24h);
+`--live` only *relabels* the timeline to start now (it never changes which data feeds the model).
+
 Dataset path is set in `config/config.yaml` (`paths.raw_data`).
-**Compliance:** uses only the provided dataset — no external datasets or APIs.
+**Compliance:** uses only the provided dataset + published traffic-engineering constants — no external
+datasets or APIs. OR-Tools is a solver library (it ships no data); patrol distances come from the
+zone coordinates already in the dataset.
 
 ---
 

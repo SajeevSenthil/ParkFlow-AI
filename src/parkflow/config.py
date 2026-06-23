@@ -41,6 +41,7 @@ class TemporalCfg:
     lag_days: list[int]
     rolling_days: list[int]
     timezone: str = "Asia/Kolkata"
+    forecast_horizon_bins: int = 8
 
     @property
     def bins_per_day(self) -> int:
@@ -121,6 +122,23 @@ class EvaluationCfg:
 class PatrolCfg:
     num_teams: int
     spatial_suppress_km: float
+    zones_per_team: int = 4
+    route_candidate_pool: int = 30
+
+
+@dataclass(frozen=True)
+class EconomicsCfg:
+    value_of_time_inr_per_hour: float
+    avg_vehicle_occupancy: float
+    vehicles_blocked_per_violation: float
+    max_delay_hours_per_vehicle: float
+
+
+@dataclass(frozen=True)
+class DisplacementCfg:
+    displaced_fraction: float
+    displacement_radius_km: float
+    coverage_radius_km: float
 
 
 @dataclass(frozen=True)
@@ -140,6 +158,8 @@ class Config:
     congestion: CongestionCfg
     evaluation: EvaluationCfg
     patrol: PatrolCfg
+    economics: EconomicsCfg
+    displacement: DisplacementCfg
     preprocessing: PreprocessingCfg
     valid_violation_types: list[str]
     log_level: str
@@ -178,6 +198,8 @@ class Config:
             congestion=CongestionCfg(**raw["congestion"]),
             evaluation=EvaluationCfg(**raw["evaluation"]),
             patrol=PatrolCfg(**raw["patrol"]),
+            economics=EconomicsCfg(**raw["economics"]),
+            displacement=DisplacementCfg(**raw["displacement"]),
             preprocessing=preprocessing,
             valid_violation_types=list(raw["valid_violation_types"]),
             log_level=raw.get("logging", {}).get("level", "INFO"),

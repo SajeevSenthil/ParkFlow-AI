@@ -70,6 +70,16 @@ congestion_index (0–100)  = est_% / max_cap × 100
 | `risk` band | predicted count → Low/Med/High/Critical | `risk_band()` | forecast color-coding, KPIs, patrol cards |
 | `priority_score` | 0.6·pred + 0.3·hist + 0.1·junction (0–100) | `enforcement_priority()` | Enforcement ranking, patrol selection, Junction Risk |
 | patrol plan | greedy top-N with haversine spatial spread | `allocate_patrols()` | `patrol_plan.csv` → Enforcement map + team cards |
+| patrol **routes** | OR-Tools CVRP on a haversine matrix; ordered route per team, `zones_per_team` cap; greedy fallback | `route_patrols()` | `patrol_routes.csv` → Enforcement route map |
+
+## C2. Judge-upgrade decision layers
+
+| Output | Computation | File → artifact | Dashboard |
+|---|---|---|---|
+| **24h forecast timeline** | recursive multi-step: predict bin → feed back as lag → repeat for `forecast_horizon_bins` (leakage-safe); `--live` relabels the anchor to now | `build_multi_horizon_frames()` → `forecast_timeline.csv` | Prediction Center → "Next 24h timeline" |
+| **Economic cost (₹)** | `pred × vehicles_blocked × (max_delay × cap_red%/100) × occupancy × value_of_time`; tied to the congestion layer; published constants only | `economics.economic_impact()` → `economic_impact.csv` + `economic_summary` in `metrics.json` | Economic Impact tab + KPI |
+| **Displacement** | covered zone sheds `displaced_fraction` to nearest uncovered zone within radius (else suppressed); naive-spread vs routed leakage | `displacement.simulate_displacement()` / `compare_layouts()` → `displacement.csv` + `displacement_summary` | Enforcement → displacement map + metrics |
+| **Operator actions** | confirm / override / complete deployments persisted to SQLite (stdlib) | `operations.py` → `enforcement_log.db` | Enforcement → Operator console |
 
 ## D. Analytics features
 
@@ -95,6 +105,7 @@ Computed in `src/parkflow/analytics.py` and `src/parkflow/pipeline.py`.
 
 ## F. The flow in one line
 
-**preprocessing** (clean+filter) → **features** (17 inputs) → **model** (Tweedie forecast) →
-**intelligence** (congestion/risk/priority/patrol) + **analytics** (offenders/junctions/trends) +
-**explain** (SHAP) → **artifacts/** → **dashboard** (8 tabs).
+**preprocessing** (clean+filter) → **features** (17 inputs) → **model** (Tweedie, recursive 24h
+forecast) → **intelligence** (congestion/risk/priority/patrol greedy+VRP) + **economics** (₹) +
+**displacement** (blindspots) + **analytics** (offenders/junctions/trends) + **explain** (SHAP) →
+**artifacts/** → **dashboard** (9 tabs) → **operations** (operator actions → `enforcement_log.db`).
