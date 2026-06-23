@@ -91,7 +91,7 @@ flowchart TD
     AR[(CSV / Parquet / model.joblib / metrics.json)]
   end
   subgraph UI["Streamlit - online"]
-    D[8-tab decision dashboard]
+    D[9-tab decision dashboard]
   end
   R --> P1
   P5 --> AR
@@ -193,11 +193,13 @@ flowchart TD
   Z --> F["17 features:<br/>time · lags · zone-profile"]
   F --> S["Time split (80/20)"]
   S --> M["XGBoost Tweedie"]
-  M --> Y["Predicted count ŷ"]
+  M --> Y["Recursive 24h forecast ŷ"]
   Y --> R["Risk band"]
   Y --> C["Congestion index"]
+  Y --> EC["Economic cost (₹)"]
   Y --> PR["Priority score"]
-  PR --> PT["Patrol plan (top-N, spatial spread)"]
+  PR --> PT["Route-optimized patrol plan (OR-Tools VRP)"]
+  PT --> DP["Displacement simulation"]
   M --> SH["SHAP why-this-zone"]
 ```
 
@@ -234,7 +236,7 @@ Held-out future test (~169k zone-windows; trained on the earliest 80%):
 |---|---|---|
 | Commuter cost at risk | **≈ ₹1.16 lakh** (≈ 696 commuter-hours) | Productivity lost to predicted violations, valued at ≈ ₹164/commuter-hour (ISEC WP-554, 2023) |
 | Route-optimized patrols | **12 stops / 3 teams** via OR-Tools CVRP | Ordered routes minimizing travel distance vs a greedy 1 km rule |
-| Displacement leakage | **1.2 vs 1.8** violations (**−33%**) | Route-optimized layout leaks fewer violations into blindspots than a naive same-size spatial spread |
+| Displacement leakage | **1.3 vs 1.9** violations (**−32%**) | Route-optimized layout leaks fewer violations into blindspots than a naive same-size spatial spread |
 
 ---
 
@@ -328,18 +330,6 @@ Dataset path is set in `config/config.yaml` (`paths.raw_data`).
 **Compliance:** uses only the provided dataset + published traffic-engineering constants — no external
 datasets or APIs. OR-Tools is a solver library (it ships no data); patrol distances come from the
 zone coordinates already in the dataset.
-
----
-
-## 9. Links
-
-| Resource | Link |
-|---|---|
-| Presentation (PPT) | _add link_ |
-| Demo video | _add link_ |
-| Live deployment | _add link_ |
-| GitHub repository | https://github.com/SajeevSenthil/ParkFlow-AI |
-
 
 ---
 
