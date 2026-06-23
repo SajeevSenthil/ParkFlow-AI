@@ -5,6 +5,7 @@ Junction Risk tabs.
 
 from __future__ import annotations
 
+# pyrefly: ignore [missing-import]
 import numpy as np
 import pandas as pd
 
