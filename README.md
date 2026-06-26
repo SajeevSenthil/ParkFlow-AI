@@ -7,6 +7,21 @@
 
 <p align="center"><em> Flipkart Gridlock Hackathon 2.0 </em></p>
 
+<table align="center">
+<tr>
+<th>Live Dashboard</th>
+<th>Demo Video</th>
+<th>Presentation</th>
+<th>Repository</th>
+</tr>
+<tr>
+<td align="center"><b><a href="https://parkflow-ai.streamlit.app/">Open the app</a></b></td>
+<td align="center"><b><a href="https://1drv.ms/v/c/03113dcd98313551/IQB3gb0Sm4K4S5cav2UpPi_lAXVKd7f-APOsoTwXyX_sswk?e=8yygyr">Watch the demo</a></b></td>
+<td align="center"><b><a href="https://drive.google.com/file/d/1_Q3v-eaTTpikP4tIFlthqRba18mCTPS_/view?usp=sharing">View slides</a></b></td>
+<td align="center"><b><a href="https://github.com/SajeevSenthil/ParkFlow-AI">GitHub</a></b></td>
+</tr>
+</table>
+
 ---
 
 ## 1. Problem Statement
@@ -69,6 +84,11 @@ inherent to parking violations, benchmarked against a seasonal-naive baseline.
 
 ### 2.2 Architecture
 
+![ParkFlow-AI architecture](docs/parkflow_architecture_colored_9tab.png)
+
+<details>
+<summary>Architecture as Mermaid (text source)</summary>
+
 ```mermaid
 flowchart TD
   subgraph Data
@@ -88,7 +108,7 @@ flowchart TD
     AR[(CSV / Parquet / model.joblib / metrics.json)]
   end
   subgraph UI["Streamlit - online"]
-    D[8-tab decision dashboard]
+    D[9-tab decision dashboard]
   end
   R --> P1
   P5 --> AR
@@ -97,6 +117,8 @@ flowchart TD
   P9 --> AR
   AR --> D
 ```
+
+</details>
 
 ### 2.3 Data preprocessing techniques
 
@@ -190,11 +212,13 @@ flowchart TD
   Z --> F["17 features:<br/>time · lags · zone-profile"]
   F --> S["Time split (80/20)"]
   S --> M["XGBoost Tweedie"]
-  M --> Y["Predicted count ŷ"]
+  M --> Y["Recursive 24h forecast ŷ"]
   Y --> R["Risk band"]
   Y --> C["Congestion index"]
+  Y --> EC["Economic cost (₹)"]
   Y --> PR["Priority score"]
-  PR --> PT["Patrol plan (top-N, spatial spread)"]
+  PR --> PT["Route-optimized patrol plan (OR-Tools VRP)"]
+  PT --> DP["Displacement simulation"]
   M --> SH["SHAP why-this-zone"]
 ```
 
@@ -231,7 +255,7 @@ Held-out future test (~169k zone-windows; trained on the earliest 80%):
 |---|---|---|
 | Commuter cost at risk | **≈ ₹1.16 lakh** (≈ 696 commuter-hours) | Productivity lost to predicted violations, valued at ≈ ₹164/commuter-hour (ISEC WP-554, 2023) |
 | Route-optimized patrols | **12 stops / 3 teams** via OR-Tools CVRP | Ordered routes minimizing travel distance vs a greedy 1 km rule |
-| Displacement leakage | **1.2 vs 1.8** violations (**−33%**) | Route-optimized layout leaks fewer violations into blindspots than a naive same-size spatial spread |
+| Displacement leakage | **1.3 vs 1.9** violations (**−32%**) | Route-optimized layout leaks fewer violations into blindspots than a naive same-size spatial spread |
 
 ---
 
@@ -278,7 +302,7 @@ Analytics Center, Junction Risk, Repeat Offenders, Model.
 ```
 ParkFlow-AI/
 ├── config/config.yaml      # every tunable (bins, model, risk bands, PCU weights)
-├── dataset/                # raw BTP CSV (gitignored)
+├── dataset/                # BTP CSV, gzipped & committed (raw .csv stays gitignored)
 ├── src/parkflow/           # pipeline package
 │   ├── preprocessing.py    # clean, parse, UTC->IST, validation filter
 │   ├── spatial.py          # junction / grid zoning
@@ -295,7 +319,7 @@ ParkFlow-AI/
 │   └── pipeline.py         # orchestrates everything -> artifacts/
 ├── app/streamlit_app.py    # 9-tab dashboard (reads artifacts; operator writes to SQLite)
 ├── tests/                  # correctness tests (zero-fill, no leakage, economics, routing, …)
-└── docs/screenshots/       # dashboard screenshots
+└── docs/                   # PRD.md, feat.md, updated.md + screenshots/
 ```
 
 ---
@@ -325,18 +349,6 @@ Dataset path is set in `config/config.yaml` (`paths.raw_data`).
 **Compliance:** uses only the provided dataset + published traffic-engineering constants — no external
 datasets or APIs. OR-Tools is a solver library (it ships no data); patrol distances come from the
 zone coordinates already in the dataset.
-
----
-
-## 9. Links
-
-| Resource | Link |
-|---|---|
-| Presentation (PPT) | _add link_ |
-| Demo video | _add link_ |
-| Live deployment | _add link_ |
-| GitHub repository | https://github.com/SajeevSenthil/ParkFlow-AI |
-
 
 ---
 

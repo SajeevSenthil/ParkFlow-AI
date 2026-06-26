@@ -1,0 +1,13 @@
+team,stop_order,zone,zone_lat,zone_lon,priority_score,predicted_violations,risk,route_method
+Team A,1,BTP082 - KR Market Junction,12.964437358705567,77.57722593887625,93.6,20.9,High,ortools_cvrp
+Team A,2,"BTP083 - AS Char Street, Mysore Road",12.966447272054511,77.57438870947549,27.5,4.0,Low,ortools_cvrp
+Team A,3,BTP044 - Sagar Theatre Junction,12.974967581711818,77.578895476761,51.6,6.4,Medium,ortools_cvrp
+Team A,4,BTP032 - Windsor Circle,12.993096625500073,77.58822236588165,23.1,2.2,Low,ortools_cvrp
+Team B,1,BTP057 - Anand Rao Junction,12.979392785939394,77.57440407684848,39.9,7.5,Medium,ortools_cvrp
+Team B,2,BTP045 - Danvanthri Road Junction,12.977073068989547,77.57476422605498,31.6,5.1,Medium,ortools_cvrp
+Team B,3,BTP040 - Elite Junction,12.976622070795319,77.57660554051733,57.7,8.3,Medium,ortools_cvrp
+Team B,4,BTP058 - Subbanna Junction,12.978989333010263,77.57865990497868,68.0,16.3,High,ortools_cvrp
+Team C,1,GRID_13.01_77.7,13.00853972996253,77.69597298270608,29.2,8.2,Medium,ortools_cvrp
+Team C,2,GRID_12.93_77.69,12.93286626741966,77.69019528705788,30.4,3.8,Low,ortools_cvrp
+Team C,3,BTP051 - Safina Plaza Junction,12.981216675419292,77.60866933585206,44.1,1.4,Low,ortools_cvrp
+Team C,4,BTP211 - Central Street Junction,12.98332668621232,77.60345690325934,27.2,2.3,Low,ortools_cvrp

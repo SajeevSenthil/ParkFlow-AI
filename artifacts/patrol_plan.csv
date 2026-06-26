@@ -1,0 +1,4 @@
+team,zone,priority_score,predicted_violations,risk,zone_lat,zone_lon
+Team A,BTP082 - KR Market Junction,93.6,20.9,High,12.964437358705567,77.57722593887625
+Team B,BTP058 - Subbanna Junction,68.0,16.3,High,12.978989333010263,77.57865990497868
+Team C,BTP051 - Safina Plaza Junction,44.1,1.4,Low,12.981216675419292,77.60866933585206

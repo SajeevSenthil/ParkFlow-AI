@@ -1,0 +1,91 @@
+{
+  "rows": {
+    "train": 677867,
+    "test": 168941
+  },
+  "baseline": {
+    "mae": 0.37829268082259293,
+    "rmse": 2.039080994691501,
+    "r2": 0.29427128653101375,
+    "poisson_deviance": 1.6444704909670893
+  },
+  "model": {
+    "mae": 0.376099667069678,
+    "rmse": 1.9738504503846885,
+    "r2": 0.3387018250343037,
+    "poisson_deviance": 0.9297924559220533
+  },
+  "ranking": {
+    "baseline": {
+      "top_10_hit_rate": 0.3630705394190871,
+      "hotspot_pr_auc": 0.35364085380318355
+    },
+    "model": {
+      "top_10_hit_rate": 0.28464730290456436,
+      "hotspot_pr_auc": 0.39323781725852597
+    }
+  },
+  "clean_stats": {
+    "rows_in": 298450,
+    "rows_out": 243405,
+    "dropped_non_parking": 0,
+    "dropped_duplicates": 4966,
+    "dropped_no_timestamp": 5,
+    "filled_junction": 0,
+    "filled_station": 0,
+    "details": {
+      "dropped_admin_columns": [
+        "id",
+        "description",
+        "device_id",
+        "created_by_id",
+        "center_code",
+        "closed_datetime",
+        "modified_datetime",
+        "data_sent_to_scita",
+        "action_taken_timestamp",
+        "data_sent_to_scita_timestamp",
+        "updated_vehicle_number",
+        "updated_vehicle_type"
+      ],
+      "dropped_by_validation_status": 50074
+    }
+  },
+  "config": {
+    "bin_hours": 3,
+    "test_fraction": 0.2,
+    "objective": "reg:tweedie",
+    "hotspot_threshold": 5,
+    "top_k": 10,
+    "zones_per_team": 4
+  },
+  "pipeline_run_at": "2026-06-23T19:06:32.277942",
+  "data_date_range": {
+    "from": "2023-11-10 00:41:46",
+    "to": "2024-04-08 23:00:46"
+  },
+  "model_beats_baseline": true,
+  "economic_summary": {
+    "total_cost_inr": 115523.0,
+    "total_cost_lakh": 1.16,
+    "total_vehicle_hours": 695.8,
+    "zone_windows": 5608,
+    "top_zone": "BTP051 - Safina Plaza Junction"
+  },
+  "displacement_summary": {
+    "total_predicted": 211.3,
+    "displaced_out": 32.8,
+    "relocated_in": 1.2,
+    "suppressed": 31.6,
+    "n_covered": 49,
+    "n_blindspots": 9,
+    "leakage": 1.2,
+    "naive_leakage": 1.8,
+    "routed_leakage": 1.2,
+    "leakage_reduction_pct": 33.3,
+    "naive_n_covered": 80,
+    "routed_n_covered": 49
+  },
+  "live_mode": false,
+  "forecast_horizon_bins": 8
+}
